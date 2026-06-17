@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "image",
+  "generatedAt": "2026-06-17T06:09:19.911Z",
+  "source": {
+    "workspacePath": "C:\\Users\\Administrator\\Documents\\PM_Materials",
+    "folderName": "08_产品图片素材",
+    "fileName": "ET 200BL station.jpg",
+    "extension": ".jpg",
+    "size": 39676,
+    "mtimeMs": 1781253050000,
+    "sha256": "f767796190c48569274ce577faae9e18d5b2975a79db69f3ab4386355b38e1f9"
+  },
+  "image": {
+    "width": 500,
+    "height": 269,
+    "format": "jpeg",
+    "space": "srgb",
+    "hasAlpha": false,
+    "density": 96
+  },
+  "tags": [
+    "图片素材",
+    "站点图"
+  ],
+  "usage": "适合作为系统/站点概览页图片"
+}

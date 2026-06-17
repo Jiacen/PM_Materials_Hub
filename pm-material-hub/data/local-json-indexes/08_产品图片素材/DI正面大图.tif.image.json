@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "kind": "image",
+  "generatedAt": "2026-06-17T06:09:19.892Z",
+  "source": {
+    "workspacePath": "C:\\Users\\Administrator\\Documents\\PM_Materials",
+    "folderName": "08_产品图片素材",
+    "fileName": "DI正面大图.tif",
+    "extension": ".tif",
+    "size": 1585280,
+    "mtimeMs": 1781253079000,
+    "sha256": "468bb45aecaa374538294424f5db0889a97134487f6641d80ab92a5481e61eb5"
+  },
+  "image": {
+    "width": 445,
+    "height": 2596,
+    "format": "tiff",
+    "space": "srgb",
+    "hasAlpha": false,
+    "density": 300
+  },
+  "tags": [
+    "图片素材",
+    "正面图",
+    "DI 模块"
+  ],
+  "usage": "适合作为产品介绍页主图或模块识别图"
+}

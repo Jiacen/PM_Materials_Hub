@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "kind": "image",
+  "generatedAt": "2026-06-17T06:09:20.055Z",
+  "source": {
+    "workspacePath": "C:\\Users\\Administrator\\Documents\\PM_Materials",
+    "folderName": "08_产品图片素材",
+    "fileName": "P_ST70_XX_09405V.tif",
+    "extension": ".tif",
+    "size": 1505408,
+    "mtimeMs": 1781253087000,
+    "sha256": "92bd46e7610dbe6839b63f0fc4ed26aa395a1132d97ece2a80ee9a5bcc9420ea"
+  },
+  "image": {
+    "width": 439,
+    "height": 2597,
+    "format": "tiff",
+    "space": "srgb",
+    "hasAlpha": false,
+    "density": 300
+  },
+  "tags": [
+    "图片素材"
+  ],
+  "usage": "适合作为销售胶片中的产品素材图"
+}

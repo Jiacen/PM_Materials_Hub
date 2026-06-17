@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+pm-material-hub/node_modules/
+
+# Next.js build output
+.next/
+pm-material-hub/.next/
+out/
+pm-material-hub/out/
+build/
+pm-material-hub/build/
+
+# Local configuration and secrets
+.env
+.env.*
+pm-material-hub/.env
+pm-material-hub/.env.*
+pm-material-hub/config/settings.json
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# TypeScript cache
+*.tsbuildinfo

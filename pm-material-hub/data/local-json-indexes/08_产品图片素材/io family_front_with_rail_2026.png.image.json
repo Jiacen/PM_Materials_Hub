@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "kind": "image",
+  "generatedAt": "2026-06-17T06:09:19.962Z",
+  "source": {
+    "workspacePath": "C:\\Users\\Administrator\\Documents\\PM_Materials",
+    "folderName": "08_产品图片素材",
+    "fileName": "io family_front_with_rail_2026.png",
+    "extension": ".png",
+    "size": 7781177,
+    "mtimeMs": 1781253054000,
+    "sha256": "3cab0c239c34bc4c274b8a7a4a80f742437757d6c52d15126756ff4f0ec9a1df"
+  },
+  "image": {
+    "width": 3840,
+    "height": 2160,
+    "format": "png",
+    "space": "srgb",
+    "hasAlpha": true,
+    "density": 144
+  },
+  "tags": [
+    "图片素材",
+    "正面图",
+    "产品家族",
+    "导轨安装",
+    "AI 模块"
+  ],
+  "usage": "适合作为产品介绍页主图或模块识别图"
+}

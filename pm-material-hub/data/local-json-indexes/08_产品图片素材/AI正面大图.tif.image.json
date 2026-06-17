@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "kind": "image",
+  "generatedAt": "2026-06-17T06:09:19.864Z",
+  "source": {
+    "workspacePath": "C:\\Users\\Administrator\\Documents\\PM_Materials",
+    "folderName": "08_产品图片素材",
+    "fileName": "AI正面大图.tif",
+    "extension": ".tif",
+    "size": 1525324,
+    "mtimeMs": 1781253030000,
+    "sha256": "8ca9cfd342bab57bada62de74813cc15f5fc0c4a86c7d71279f78a027c157911"
+  },
+  "image": {
+    "width": 440,
+    "height": 2597,
+    "format": "tiff",
+    "space": "srgb",
+    "hasAlpha": false,
+    "density": 300
+  },
+  "tags": [
+    "图片素材",
+    "正面图",
+    "AI 模块"
+  ],
+  "usage": "适合作为产品介绍页主图或模块识别图"
+}

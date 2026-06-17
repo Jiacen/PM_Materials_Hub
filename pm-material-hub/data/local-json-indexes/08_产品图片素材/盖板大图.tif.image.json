@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "kind": "image",
+  "generatedAt": "2026-06-17T06:09:20.195Z",
+  "source": {
+    "workspacePath": "C:\\Users\\Administrator\\Documents\\PM_Materials",
+    "folderName": "08_产品图片素材",
+    "fileName": "盖板大图.tif",
+    "extension": ".tif",
+    "size": 1084312,
+    "mtimeMs": 1781253094000,
+    "sha256": "02387452c7abca52f3710a76bfdf86b73aff0c099d6cfbbf9c2f733bb19409c2"
+  },
+  "image": {
+    "width": 376,
+    "height": 2168,
+    "format": "tiff",
+    "space": "srgb",
+    "hasAlpha": false,
+    "density": 300
+  },
+  "tags": [
+    "图片素材"
+  ],
+  "usage": "适合作为销售胶片中的产品素材图"
+}

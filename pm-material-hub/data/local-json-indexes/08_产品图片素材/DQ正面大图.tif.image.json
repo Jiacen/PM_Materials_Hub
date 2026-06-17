@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "kind": "image",
+  "generatedAt": "2026-06-17T06:09:19.904Z",
+  "source": {
+    "workspacePath": "C:\\Users\\Administrator\\Documents\\PM_Materials",
+    "folderName": "08_产品图片素材",
+    "fileName": "DQ正面大图.tif",
+    "extension": ".tif",
+    "size": 1536040,
+    "mtimeMs": 1781253085000,
+    "sha256": "a9056afe12e46cfc7ffe26f408dfe5dd2eb8a31a47d9c34d00da9fed7f8c3225"
+  },
+  "image": {
+    "width": 445,
+    "height": 2595,
+    "format": "tiff",
+    "space": "srgb",
+    "hasAlpha": false,
+    "density": 300
+  },
+  "tags": [
+    "图片素材",
+    "正面图",
+    "DQ 模块"
+  ],
+  "usage": "适合作为产品介绍页主图或模块识别图"
+}

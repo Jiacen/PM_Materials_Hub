@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f8fafc; /* light slate background */
+  --foreground: #0f172a; /* dark slate foreground */
+  
+  /* Siemens Modern Brand Colors */
+  --siemens-petrol: #009999;
+  --siemens-teal: #00646E;
+  --siemens-mint: #00FFB9;
+  --siemens-stone: #E5E7EB;
+  
+  /* System Primary Theme based on Siemens Petrol */
+  --primary: #009999;
+  --primary-hover: #008080;
+  --primary-foreground: #ffffff;
+  
+  /* Glassmorphism Settings */
+  --glass-bg: rgba(255, 255, 255, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.4);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  
+  --color-siemens-petrol: var(--siemens-petrol);
+  --color-siemens-teal: var(--siemens-teal);
+  --color-siemens-mint: var(--siemens-mint);
+  --color-siemens-stone: var(--siemens-stone);
+  
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  
+  --font-sans: "Inter", var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono);
+}
+
+@layer utilities {
+  .glass {
+    background-color: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+  }
+  
+  .glass-panel {
+    background-color: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.08);
+  }
+  
+  .hover-lift {
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  
+  .hover-lift:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 16px 32px -8px rgba(0, 153, 153, 0.15); /* Subtle petrol shadow */
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
