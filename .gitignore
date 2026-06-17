@@ -17,6 +17,9 @@ pm-material-hub/.env
 pm-material-hub/.env.*
 pm-material-hub/config/settings.json
 
+# Generated material indexes and per-user material data
+pm-material-hub/data/
+
 # Logs
 *.log
 npm-debug.log*
