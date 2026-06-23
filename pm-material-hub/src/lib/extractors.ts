@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import * as xlsx from 'xlsx';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 
 // Polyfills required for pdf-parse (pdf.js) in Node.js 18+ / Next.js
 if (typeof (global as any).DOMMatrix === 'undefined') {
@@ -15,6 +17,23 @@ if (typeof (global as any).Path2D === 'undefined') {
 
 const pdf = require('pdf-parse');
 const officeParser = require('officeparser');
+const mammoth = require('mammoth');
+
+function officeParserResultToText(result: any): string {
+  if (!result) return '';
+  if (typeof result === 'string') return result;
+  if (typeof result.toText === 'function') return result.toText();
+  return String(result.content || '');
+}
+
+async function extractScannedPdfText(filePath: string): Promise<string> {
+  const ocrScript = path.join(process.cwd(), 'scripts', 'ocr-pdf.cjs');
+  const { stdout } = await promisify(execFile)(process.execPath, [ocrScript, filePath], {
+    maxBuffer: 20 * 1024 * 1024,
+    timeout: 5 * 60 * 1000,
+  });
+  return stdout;
+}
 
 /**
  * Extracts raw text from various file formats.
@@ -35,7 +54,10 @@ export async function extractRawText(filePath: string): Promise<string> {
         }
       }
       const data = await pdfParser(dataBuffer);
-      return data.text;
+      const extractedText = String(data.text || '').trim();
+      return extractedText.length > 20
+        ? extractedText
+        : extractScannedPdfText(filePath);
     } 
     
     if (ext === '.xlsx' || ext === '.xls') {
@@ -51,10 +73,13 @@ export async function extractRawText(filePath: string): Promise<string> {
       return text;
     }
     
-    if (ext === '.pptx' || ext === '.docx' || ext === '.ppt' || ext === '.doc') {
-      // officeParser can extract text from Office files
-      const text = await officeParser.parseOfficeAsync(filePath);
-      return text || '';
+    if (ext === '.docx') {
+      const result = await mammoth.extractRawText({ buffer: fs.readFileSync(filePath) });
+      return result.value || '';
+    }
+
+    if (ext === '.pptx' || ext === '.ppt' || ext === '.doc') {
+      return officeParserResultToText(await officeParser.parseOffice(filePath));
     }
     
     if (ext === '.txt' || ext === '.md' || ext === '.csv') {

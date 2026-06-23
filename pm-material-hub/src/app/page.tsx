@@ -405,6 +405,7 @@ export default function Home() {
     if (type === 'product') return 'PRODUCT';
     if (type === 'module') return 'MODULE';
     if (type === 'accessory') return 'PART';
+    if (type === 'certificate') return 'CERTIFICATE';
     if (type === 'mlfb') return 'MLFB';
     if (type === 'document') return 'DOC';
     return 'TEXT';
@@ -415,6 +416,7 @@ export default function Home() {
     if (type === 'product') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
     if (type === 'module') return 'bg-primary/10 text-primary border-primary/20';
     if (type === 'accessory') return 'bg-slate-100 text-slate-600 border-slate-200';
+    if (type === 'certificate') return 'bg-amber-50 text-amber-800 border-amber-200';
     if (type === 'mlfb') return 'bg-primary/10 text-primary border-primary/20';
     if (type === 'document') return 'bg-slate-100 text-slate-600 border-slate-200';
     return 'bg-amber-50 text-amber-700 border-amber-100';
@@ -1100,11 +1102,15 @@ export default function Home() {
                     {extractionResult.success ? (
                       <ul className="text-[10px] space-y-1">
                         {extractionResult.results.map((r: any, idx: number) => (
-                          <li key={idx} className="flex justify-between items-center border-b border-slate-100 pb-1">
-                            <span className="truncate w-3/4" title={r.file}>{r.file}</span>
-                            <span className={r.status === 'success' ? 'text-emerald-500' : r.status === 'skipped' ? 'text-slate-400' : 'text-red-500'}>
-                              {r.status === 'success' ? '✅ 成功' : r.status === 'skipped' ? '⏭️ 跳过' : '❌ 失败'}
-                            </span>
+                          <li key={idx} className="border-b border-slate-100 pb-1">
+                            <div className="flex justify-between items-center gap-2">
+                              <span className="truncate w-3/4" title={r.file}>{r.file}</span>
+                              <span className={r.status === 'success' ? 'text-emerald-500' : r.status === 'skipped' ? 'text-slate-400' : 'text-red-500'}>
+                                {r.status === 'success' ? '✅ 成功' : r.status === 'skipped' ? '⏭️ 跳过' : '❌ 失败'}
+                              </span>
+                            </div>
+                            {r.error && <p className="mt-1 text-red-500 break-words">{r.error}</p>}
+                            {r.message && <p className="mt-1 text-slate-400 break-words">{r.message}</p>}
                           </li>
                         ))}
                       </ul>

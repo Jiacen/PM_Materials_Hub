@@ -4,7 +4,7 @@ import path from 'path';
 
 type MaterialCard = {
   id: string;
-  type: 'document' | 'mlfb' | 'evidence' | 'product' | 'module' | 'accessory' | 'image';
+  type: 'document' | 'mlfb' | 'evidence' | 'product' | 'module' | 'accessory' | 'certificate' | 'image';
   stage: 'ai' | 'raw';
   title: string;
   subtitle: string;
@@ -42,7 +42,9 @@ function findEvidenceSnippet(chunks: any[], value: string) {
 function cardsFromAiJson(folderName: string, sourceFile: string, ai: any): MaterialCard[] {
   const products = Array.isArray(ai?.products) ? ai.products : [];
   return products.map((product: any, index: number) => {
-    const itemType = product.item_type === 'accessory'
+    const itemType = product.item_type === 'certificate'
+      ? 'certificate'
+      : product.item_type === 'accessory'
       ? 'accessory'
       : product.item_type === 'module'
         ? 'module'
@@ -50,14 +52,25 @@ function cardsFromAiJson(folderName: string, sourceFile: string, ai: any): Mater
     const mlfb = Array.isArray(product.mlfb) ? product.mlfb.join(', ') : String(product.mlfb || '');
     const featureText = Array.isArray(product.key_features) ? product.key_features.join(' ') : '';
     const specText = Array.isArray(product.technical_specs) ? product.technical_specs.slice(0, 4).join(' · ') : '';
+    const certificateText = itemType === 'certificate'
+      ? [
+          product.issue_date ? `签发日期：${product.issue_date}` : '',
+          product.issued_to ? `持证单位：${product.issued_to}` : '',
+          Array.isArray(product.standards) && product.standards.length
+            ? `认证标准：${product.standards.join('；')}`
+            : '',
+        ].filter(Boolean).join(' ')
+      : '';
 
     return {
       id: `${safeId(sourceFile)}-ai-${index}-${safeId(product.product_name || mlfb || String(index))}`,
       type: itemType,
       stage: 'ai',
       title: product.product_name || mlfb || '精提取物料',
-      subtitle: mlfb || (itemType === 'accessory' ? '附件/备件' : '大模型精提取'),
-      body: compactText(featureText || specText || '已由大模型基于 raw JSON 规整合并。'),
+      subtitle: itemType === 'certificate'
+        ? String(product.certificate_number || '认证证书')
+        : mlfb || (itemType === 'accessory' ? '附件/备件' : '大模型精提取'),
+      body: compactText(certificateText || featureText || specText || '已由大模型基于 raw JSON 规整合并。'),
       sourceFile,
       folderName,
       chunkIds: Array.isArray(product.evidence_chunk_ids) ? product.evidence_chunk_ids : [],

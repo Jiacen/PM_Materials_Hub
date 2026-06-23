@@ -52,10 +52,14 @@ function chunkText(text: string, chunkSize = 6000, overlap = 400) {
 }
 
 function extractMlfbCandidates(text: string) {
-  const matches = text.match(/\b6ES7[\dA-Z\s*-]+(?:-[\dA-Z*-]+){0,2}\b/g) || [];
-  return [...new Set(matches.map((value) => value.replace(/\s+/g, ' ').trim()))]
-    .filter((value) => /^6ES7/.test(value))
-    .sort();
+  const matches = text.toUpperCase().match(/\b6ES7\d{3}-[A-Z0-9*]{5}-[A-Z0-9*]{4}\b/g) || [];
+  return [...new Set(matches.map((value) => {
+    const [prefix, middle, suffixValue] = value.split('-');
+    const suffix = suffixValue.split('');
+    suffix[0] = suffix[0] === 'O' ? '0' : suffix[0];
+    suffix[3] = suffix[3] === 'O' ? '0' : suffix[3];
+    return `${prefix}-${middle}-${suffix.join('')}`;
+  }))].sort();
 }
 
 function extractHeadingCandidates(text: string) {

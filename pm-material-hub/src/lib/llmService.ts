@@ -15,6 +15,35 @@ function getLLMConfig() {
   return { apiKey: '', llmBaseUrl: 'https://api.moonshot.cn/v1' };
 }
 
+function parseJsonResponse(content: string): any {
+  const normalized = content.replace(/^\uFEFF/, '').trim();
+  const candidates = [normalized];
+  const fenced = normalized.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+
+  if (fenced?.[1]) {
+    candidates.push(fenced[1].trim());
+  }
+
+  const objectStart = normalized.indexOf('{');
+  const objectEnd = normalized.lastIndexOf('}');
+  if (objectStart !== -1 && objectEnd > objectStart) {
+    candidates.push(normalized.slice(objectStart, objectEnd + 1));
+  }
+
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Try the next normalized representation.
+    }
+  }
+
+  const preview = normalized.length > 1200
+    ? `${normalized.slice(0, 600)} ... ${normalized.slice(-600)}`
+    : normalized;
+  throw new Error(`LLM did not return valid JSON structure. Response preview: ${preview}`);
+}
+
 export class LLMService {
   /**
    * Summarize or extract insights from raw text using a specific prompt.
@@ -39,28 +68,25 @@ export class LLMService {
       : rawText;
 
     try {
+      const model = safeText.length > 24000 ? 'moonshot-v1-128k' : 'moonshot-v1-32k';
       const response = await client.chat.completions.create({
-        model: 'moonshot-v1-128k',
+        model,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: safeText }
         ],
         temperature: 0.1,
+        max_tokens: 8192,
         response_format: { type: "json_object" } // Enforce JSON
       });
 
       const content = response.choices[0]?.message?.content || '{}';
       
       try {
-        return JSON.parse(content);
+        return parseJsonResponse(content);
       } catch (parseError) {
-        // Fallback regex extraction if the model wrapped it in markdown
-        const match = content.match(/```(?:json)?\n([\s\S]*?)\n```/);
-        if (match && match[1]) {
-          return JSON.parse(match[1]);
-        }
         console.error("Failed to parse LLM output as JSON:", content);
-        throw new Error("LLM did not return valid JSON structure.");
+        throw parseError;
       }
     } catch (error) {
       console.error("LLM API Error:", error);
@@ -79,7 +105,21 @@ export class LLMService {
     
     if (rawText.length <= SAFE_LIMIT) {
       console.log(`Document is ${rawText.length} chars, processing in a single chunk.`);
-      return this.extractInsights(systemPrompt, rawText);
+      const retryDelays = [5000, 15000];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          return await this.extractInsights(systemPrompt, rawText);
+        } catch (error: any) {
+          const retryable = error?.status === 429
+            || error?.message?.includes('overloaded')
+            || error?.message?.includes('valid JSON');
+          if (!retryable || attempt === 2) {
+            throw error;
+          }
+          await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
+        }
+      }
+      throw new Error('LLM extraction retry loop ended unexpectedly.');
     }
     
     console.log(`Document is ${rawText.length} chars, splitting into chunks (Map-Reduce)...`);

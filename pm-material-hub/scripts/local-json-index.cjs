@@ -4,7 +4,10 @@ const path = require('path');
 const xlsx = require('xlsx');
 const pdf = require('pdf-parse');
 const officeParser = require('officeparser');
+const mammoth = require('mammoth');
 const sharp = require('sharp');
+const { createCanvas } = require('@napi-rs/canvas');
+const { createWorker } = require('tesseract.js');
 
 const projectRoot = path.resolve(__dirname, '..');
 const settingsPath = path.join(projectRoot, 'config', 'settings.json');
@@ -60,10 +63,14 @@ function chunkText(text, chunkSize = 6000, overlap = 400) {
 }
 
 function extractMlfbCandidates(text) {
-  const matches = text.match(/\b6ES7[\dA-Z\s*-]+(?:-[\dA-Z*-]+){0,2}\b/g) || [];
-  return [...new Set(matches.map((value) => value.replace(/\s+/g, ' ').trim()))]
-    .filter((value) => /^6ES7/.test(value))
-    .sort();
+  const matches = text.toUpperCase().match(/\b6ES7\d{3}-[A-Z0-9*]{5}-[A-Z0-9*]{4}\b/g) || [];
+  return [...new Set(matches.map((value) => {
+    const [prefix, middle, suffixValue] = value.split('-');
+    const suffix = suffixValue.split('');
+    suffix[0] = suffix[0] === 'O' ? '0' : suffix[0];
+    suffix[3] = suffix[3] === 'O' ? '0' : suffix[3];
+    return `${prefix}-${middle}-${suffix.join('')}`;
+  }))].sort();
 }
 
 function extractHeadingCandidates(text) {
@@ -79,13 +86,62 @@ function extractHeadingCandidates(text) {
     .slice(0, 300);
 }
 
+function officeParserResultToText(result) {
+  if (!result) return '';
+  if (typeof result === 'string') return result;
+  if (typeof result.toText === 'function') return result.toText();
+  return String(result.content || '');
+}
+
+async function extractScannedPdfText(fileBuffer) {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const document = await pdfjs.getDocument({
+    data: new Uint8Array(fileBuffer),
+    disableWorker: true,
+  }).promise;
+  const cachePath = path.join(projectRoot, 'resources', 'ocr');
+  const worker = await createWorker('eng', undefined, {
+    cachePath,
+    cacheMethod: 'readOnly',
+  });
+  const pages = [];
+
+  try {
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 2 });
+      const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+      await page.render({
+        canvasContext: canvas.getContext('2d'),
+        viewport,
+      }).promise;
+      const result = await worker.recognize(canvas.toBuffer('image/png'));
+      pages.push(`--- Page ${pageNumber} ---\n${result.data.text || ''}`);
+      page.cleanup();
+    }
+  } finally {
+    await worker.terminate();
+    await document.destroy();
+  }
+
+  return pages.join('\n\n');
+}
+
 async function extractText(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.pdf') {
-    const data = await pdf(fs.readFileSync(filePath));
+    const fileBuffer = fs.readFileSync(filePath);
+    const data = await pdf(fileBuffer);
+    const extractedText = normalizeText(data.text || '');
+    if (extractedText.length > 20) {
+      return {
+        text: extractedText,
+        stats: { pages: data.numpages || null, ocrApplied: false },
+      };
+    }
     return {
-      text: data.text || '',
-      stats: { pages: data.numpages || null },
+      text: await extractScannedPdfText(fileBuffer),
+      stats: { pages: data.numpages || null, ocrApplied: true, ocrLanguage: 'eng' },
     };
   }
   if (ext === '.xlsx' || ext === '.xls') {
@@ -98,9 +154,16 @@ async function extractText(filePath) {
     }
     return { text, stats: { sheets: workbook.SheetNames } };
   }
-  if (['.docx', '.doc', '.pptx', '.ppt'].includes(ext)) {
+  if (ext === '.docx') {
+    const result = await mammoth.extractRawText({ buffer: fs.readFileSync(filePath) });
     return {
-      text: await officeParser.parseOfficeAsync(filePath),
+      text: result.value || '',
+      stats: {},
+    };
+  }
+  if (['.doc', '.pptx', '.ppt'].includes(ext)) {
+    return {
+      text: officeParserResultToText(await officeParser.parseOffice(filePath)),
       stats: {},
     };
   }

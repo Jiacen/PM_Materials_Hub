@@ -28,6 +28,35 @@ function buildLlmPayloadFromRawIndex(rawIndex: any) {
   });
 }
 
+function normalizeMlfb(value: unknown) {
+  const compact = String(value || '').toUpperCase().replace(/\s+/g, '');
+  const match = compact.match(/^(6ES7\d{3}-[A-Z0-9]{5}-)([A-Z0-9]{4})$/);
+  if (!match) return compact;
+
+  const suffix = match[2].split('');
+  suffix[0] = suffix[0] === 'O' ? '0' : suffix[0];
+  suffix[3] = suffix[3] === 'O' ? '0' : suffix[3];
+  return `${match[1]}${suffix.join('')}`;
+}
+
+function normalizeStructuredData(data: any) {
+  if (!Array.isArray(data?.products)) return data;
+  return {
+    ...data,
+    products: data.products.map((product: any) => ({
+      ...product,
+      mlfb: Array.isArray(product.mlfb)
+        ? product.mlfb.map(normalizeMlfb)
+        : product.mlfb
+          ? normalizeMlfb(product.mlfb)
+          : '',
+      covered_mlfbs: Array.isArray(product.covered_mlfbs)
+        ? [...new Set(product.covered_mlfbs.map(normalizeMlfb).filter(Boolean))]
+        : [],
+    })),
+  };
+}
+
 export async function POST(req: Request) {
   try {
     const { folderName, prompt } = await req.json();
@@ -91,7 +120,9 @@ You MUST output valid JSON only. Do not wrap in markdown or any other text.
 User Rule: ${prompt}`;
 
         const llmPayload = buildLlmPayloadFromRawIndex(rawIndex);
-        const structuredData = await llmService.extractInsightsInChunks(systemPrompt, llmPayload);
+        const structuredData = normalizeStructuredData(
+          await llmService.extractInsightsInChunks(systemPrompt, llmPayload)
+        );
 
         // Save result
         fs.writeFileSync(indexFilePath, JSON.stringify(structuredData, null, 2), 'utf8');
