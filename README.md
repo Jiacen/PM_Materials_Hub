@@ -78,20 +78,37 @@ There is no database in the current design. The system relies on the local file 
 
 Each PM's actual material workspace is configured locally through `pm-material-hub/config/settings.json`.
 
-The current product convention is based on 10 standard business categories:
+The workspace uses these exact folders:
 
-1. Catalogue and product samples
-2. Product technical manuals
-3. Product material tables, including MLFB and commercial data
-4. Technical and sales slides
-5. Sales references and success cases
-6. Sales fighting guide and competitor-facing material
-7. Text material such as newsletters and summaries
-8. Product image assets
-9. Certificates
-10. FAQ and common questions
+1. `01_产品物料表格`
+2. `02_Catalogue_产品样本`
+3. `03_Manual_产品技术手册`
+4. `04_Slides_Technical&Sales`
+5. `05_Sales_Reference_成功案例`
+6. `06_Sales_Fighting_Guide`
+7. `07_文本资料`
+8. `08_产品图片素材`
+9. `09_认证证书`
+10. `10_FAQ_常见问题集`
 
-The actual folder names are configured locally and should match each PM's real workspace. The active implementation may contain Windows encoding artifacts in legacy folder names, so do not rename or normalize those folders casually.
+`01_产品物料表格` is processed first and acts as the authoritative product master-data source. Other folders link their material cards to these records through normalized MLFB values where possible.
+
+### Folder-Specific Card Goals
+
+| Folder | Primary card goals | MLFB role |
+| --- | --- | --- |
+| `01_产品物料表格` | Model, ordering information, SAP data, price, lifecycle | Authoritative master index |
+| `02_Catalogue_产品样本` | Product family, positioning, core benefits, selection scope | Important product/model field |
+| `03_Manual_产品技术手册` | Product, module, parameter, function, limitation, usage caution | Complete model coverage |
+| `04_Slides_Technical&Sales` | Product story, value proposition, technical highlight, application, comparison, sales message | Related field, not the main card unit |
+| `05_Sales_Reference_成功案例` | Customer pain, project background, solution, selection reason, result | Relates the case to products used |
+| `06_Sales_Fighting_Guide` | Competitor, differentiation, objection, supporting evidence, sales strategy | Relates guidance to product scope |
+| `07_文本资料` | Product introduction, release notice, market information | Release notices may create model cards |
+| `08_产品图片素材` | Product, module, application, structure, and scenario images | Image linking and retrieval |
+| `09_认证证书` | Certificate, standard, region, holder, certified scope | Stored in `covered_mlfbs` |
+| `10_FAQ_常见问题集` | Question, answer, applicable object, symptom, resolution | Applicable-model filtering |
+
+MLFB is not the universal card granularity. In particular, slides, references, and fighting guides should primarily produce reusable PM ideas and business narratives rather than one card per ordering number.
 
 ## Content Processing Model
 
@@ -111,6 +128,14 @@ This keeps repeated extraction cheaper, faster, and easier to inspect.
 - `*.meta.json`: refined or structured outputs used by the material card API.
 
 All of these are generated local artifacts and should stay outside Git.
+
+Extraction behavior is folder-specific and configured in `pm-material-hub/src/lib/materialProfiles.ts`.
+
+- Excel product lists generate deterministic master-data records without requiring an LLM.
+- PowerPoint files are indexed page by page, preserving slide titles, text, lists, tables, notes, image references, and slide evidence IDs.
+- PDFs use their embedded text layer first. Scanned PDFs automatically fall back to local Tesseract OCR.
+- LLM extraction reads local JSON, not the original Office/PDF file.
+- MLFB-completeness enforcement is enabled only where model-level coverage is a business requirement.
 
 ### Image Material Strategy
 
@@ -156,6 +181,7 @@ Inside `pm-material-hub/src/app/api/`:
 - Frontend: React, Tailwind CSS v4
 - Backend: Next.js API routes running on Node.js
 - Local parsing: `pdf-parse`, `officeparser`, `mammoth`, `xlsx`, `sharp`
+- Scanned PDF OCR: `Tesseract.js`, `pdfjs-dist`, `@napi-rs/canvas`
 - LLM client: OpenAI-compatible API client
 - Data model: local file system plus JSON indexes
 
@@ -197,10 +223,16 @@ This is because Turbopack dev mode previously had Windows local serving issues i
 
 ## Useful Local Commands
 
-Generate local indexes for a folder by prefix:
+Generate the product master-data index:
 
 ```powershell
-npm.cmd run index:local -- --folder-prefix 02 --force
+npm.cmd run index:local -- --folder-prefix 01 --force
+```
+
+Generate technical-manual indexes:
+
+```powershell
+npm.cmd run index:local -- --folder-prefix 03 --force
 ```
 
 Generate image manifests:
