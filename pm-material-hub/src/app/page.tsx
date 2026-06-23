@@ -2,9 +2,9 @@
 import React, { useState, useEffect } from "react";
 
 const STANDARD_FOLDERS = [
-  "01_Catalogue_产品样本",
-  "02_Manual_产品技术手册",
-  "03_产品物料表格",
+  "01_产品物料表格",
+  "02_Catalogue_产品样本",
+  "03_Manual_产品技术手册",
   "04_Slides_Technical&Sales",
   "05_Sales_Reference_成功案例",
   "06_Sales_Fighting_Guide",
@@ -313,7 +313,7 @@ export default function Home() {
     }
   };
 
-  // Group files by their parent folder (e.g. 01_Catalogue_产品样本)
+  // Group files by their parent folder (e.g. 01_产品物料表格)
   const groupedFiles = workspaceInfo?.files?.reduce((acc: any, file: any) => {
     const parts = file.relativePath.split(/\\|\//); // handle win/mac slashes
     const folder = parts[0];
@@ -406,6 +406,24 @@ export default function Home() {
     if (type === 'module') return 'MODULE';
     if (type === 'accessory') return 'PART';
     if (type === 'certificate') return 'CERTIFICATE';
+    if (type === 'product_master') return 'MASTER';
+    if (type === 'product_overview') return 'OVERVIEW';
+    if (type === 'technical_feature') return 'FEATURE';
+    if (type === 'technical_spec') return 'SPEC';
+    if (type === 'limitation') return 'LIMIT';
+    if (type === 'value_proposition') return 'VALUE';
+    if (type === 'application') return 'APPLICATION';
+    if (type === 'comparison') return 'COMPARE';
+    if (type === 'case_study') return 'CASE';
+    if (type === 'sales_message') return 'SALES';
+    if (type === 'customer_pain') return 'PAIN';
+    if (type === 'solution') return 'SOLUTION';
+    if (type === 'business_result') return 'RESULT';
+    if (type === 'objection_handling') return 'OBJECTION';
+    if (type === 'competitive_claim') return 'COMPETE';
+    if (type === 'release_notice') return 'RELEASE';
+    if (type === 'faq') return 'FAQ';
+    if (type === 'troubleshooting') return 'FIX';
     if (type === 'mlfb') return 'MLFB';
     if (type === 'document') return 'DOC';
     return 'TEXT';
@@ -417,13 +435,31 @@ export default function Home() {
     if (type === 'module') return 'bg-primary/10 text-primary border-primary/20';
     if (type === 'accessory') return 'bg-slate-100 text-slate-600 border-slate-200';
     if (type === 'certificate') return 'bg-amber-50 text-amber-800 border-amber-200';
+    if (type === 'product_master') return 'bg-teal-50 text-teal-800 border-teal-200';
+    if (type === 'product_overview') return 'bg-emerald-50 text-emerald-800 border-emerald-200';
+    if (type === 'technical_feature') return 'bg-cyan-50 text-cyan-800 border-cyan-200';
+    if (type === 'technical_spec') return 'bg-slate-100 text-slate-700 border-slate-200';
+    if (type === 'limitation') return 'bg-red-50 text-red-700 border-red-200';
+    if (type === 'value_proposition') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    if (type === 'application') return 'bg-cyan-50 text-cyan-700 border-cyan-200';
+    if (type === 'comparison') return 'bg-rose-50 text-rose-700 border-rose-200';
+    if (type === 'case_study') return 'bg-blue-50 text-blue-700 border-blue-200';
+    if (type === 'sales_message') return 'bg-orange-50 text-orange-700 border-orange-200';
+    if (type === 'customer_pain') return 'bg-rose-50 text-rose-700 border-rose-200';
+    if (type === 'solution') return 'bg-green-50 text-green-700 border-green-200';
+    if (type === 'business_result') return 'bg-blue-50 text-blue-700 border-blue-200';
+    if (type === 'objection_handling') return 'bg-amber-50 text-amber-800 border-amber-200';
+    if (type === 'competitive_claim') return 'bg-violet-50 text-violet-700 border-violet-200';
+    if (type === 'release_notice') return 'bg-sky-50 text-sky-700 border-sky-200';
+    if (type === 'faq') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+    if (type === 'troubleshooting') return 'bg-red-50 text-red-700 border-red-200';
     if (type === 'mlfb') return 'bg-primary/10 text-primary border-primary/20';
     if (type === 'document') return 'bg-slate-100 text-slate-600 border-slate-200';
     return 'bg-amber-50 text-amber-700 border-amber-100';
   };
 
-  const aiMaterialCards = materialCards.filter(card => card.stage === 'ai');
-  const rawMaterialCards = materialCards.filter(card => card.stage !== 'ai');
+  const aiMaterialCards = materialCards.filter(card => card.stage === 'ai' || card.stage === 'master');
+  const rawMaterialCards = materialCards.filter(card => card.stage === 'raw');
 
   const renderMaterialCard = (card: any) => (
     <div
@@ -806,10 +842,10 @@ export default function Home() {
                 <div>
                   <h2 className="text-sm font-semibold text-slate-700">可用物料卡片</h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    {selectedFolder ? '优先使用大模型精选卡片，原始候选用于补充核对' : '先在左侧选择资料分类'}
+                    {selectedFolder ? '优先使用主数据与精选主题卡，原始候选仅用于核对' : '先在左侧选择资料分类'}
                   </p>
                 </div>
-                <span className="text-xs text-slate-400">{aiMaterialCards.length} refined · {rawMaterialCards.length} raw</span>
+                <span className="text-xs text-slate-400">{aiMaterialCards.length} primary · {rawMaterialCards.length} raw</span>
               </div>
 
               {!selectedFolder ? (
@@ -826,7 +862,7 @@ export default function Home() {
                   {aiMaterialCards.length > 0 && (
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-xs font-semibold text-primary">大模型精选卡片</h3>
+                        <h3 className="text-xs font-semibold text-primary">主数据与精选主题卡</h3>
                         <span className="text-[10px] text-slate-400">可直接拖入工作区</span>
                       </div>
                       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">

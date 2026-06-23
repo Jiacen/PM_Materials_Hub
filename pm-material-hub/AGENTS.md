@@ -30,9 +30,9 @@ Do not assume materials are stored inside the repository. The repository stores 
 
 The folder names must match the user's actual workspace. Use these exact names:
 
-1. `01_Catalogue_产品样本`
-2. `02_Manual_产品技术手册`
-3. `03_产品物料表格`
+1. `01_产品物料表格`
+2. `02_Catalogue_产品样本`
+3. `03_Manual_产品技术手册`
 4. `04_Slides_Technical&Sales`
 5. `05_Sales_Reference_成功案例`
 6. `06_Sales_Fighting_Guide`
@@ -42,6 +42,33 @@ The folder names must match the user's actual workspace. Use these exact names:
 10. `10_FAQ_常见问题集`
 
 The `04` folder was renamed by user request. Keep `04_Slides_Technical&Sales`.
+
+## 3.1 PM Material Taxonomy and Card Goals
+
+The folder name defines the intended material-card granularity. Do not use one universal extraction schema for all folders, and do not turn every detected MLFB into a primary card.
+
+| Folder | Primary card goals | MLFB role |
+| --- | --- | --- |
+| `01_产品物料表格` | Product master data, model, ordering information, SAP information, price, and lifecycle | Authoritative master index |
+| `02_Catalogue_产品样本` | Product family, positioning, core benefits, and selection scope | Important product/model field |
+| `03_Manual_产品技术手册` | Product, module, technical parameter, function, installation limitation, and usage caution | Enforce complete model coverage |
+| `04_Slides_Technical&Sales` | Product story, value proposition, technical highlight, application, comparison, and sales message | Related field only; must not dominate cards |
+| `05_Sales_Reference_成功案例` | Customer pain, project background, solution, reason for selection, and implementation result | Relates the case to products used |
+| `06_Sales_Fighting_Guide` | Competitor, differentiation, customer objection, evidence-based response, and sales strategy | Relates the guidance to a product scope |
+| `07_文本资料` | Product introduction, release notice, and market information according to document type | Release notices may create separate model cards |
+| `08_产品图片素材` | Product hero image, module image, application image, structure image, and scenario image | Used for image linking and retrieval |
+| `09_认证证书` | Certificate, standard, region, certificate holder, and certified scope | Store covered models in `covered_mlfbs` |
+| `10_FAQ_常见问题集` | Question, answer, applicable object, fault symptom, and resolution steps | Used to filter applicable models |
+
+Core rules:
+
+1. Process `01_产品物料表格` first. It is the authoritative product master-data source for normalized MLFBs, names, classifications, SAP/order information, prices, and lifecycle fields.
+2. Other folders should link to the `01` master records through MLFB where possible. They must not silently overwrite master-data values.
+3. MLFB-completeness enforcement is appropriate for product catalogues, technical manuals, product-master tables, and model release notices. It is not a default rule for slides, references, fighting guides, certificates, images, or FAQs.
+4. For `04` through `06`, the primary card is normally a reusable PM idea or business narrative, not an individual ordering number.
+5. Local parsing preserves source structure and evidence IDs. The LLM classifies and summarizes evidence into folder-specific card types.
+6. Every refined card must retain evidence IDs. Unsupported claims must not be inferred from external knowledge.
+7. Folder extraction behavior is configured in `src/lib/materialProfiles.ts`; keep it aligned with this taxonomy.
 
 ## 4. Tech Stack
 
@@ -132,7 +159,7 @@ The old top debug toolbar with `刷新卡片` and `AI Generate` has been hidden/
 
 Each source folder can have its own `prompt.txt` inside the material folder.
 
-For `02_Manual_产品技术手册`, the current design is:
+For `03_Manual_产品技术手册`, the current design is:
 
 1. Generate local raw JSON first.
 2. Send the raw JSON chunks and candidates to the LLM.

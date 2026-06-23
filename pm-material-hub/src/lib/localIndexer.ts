@@ -175,11 +175,39 @@ export async function indexFolderLocally(folderName: string, force = false): Pro
         continue;
       }
 
-      const { extractRawText } = await import('@/lib/extractors');
-      const rawText = normalizeText(await extractRawText(filePath));
+      const { extractPresentationStructure, extractProductMasterStructure, extractRawText } = await import('@/lib/extractors');
+      const presentation = ['.ppt', '.pptx'].includes(ext)
+        ? await extractPresentationStructure(filePath)
+        : null;
+      const productMaster = ['.xls', '.xlsx'].includes(ext)
+        ? extractProductMasterStructure(filePath)
+        : null;
+      const rawText = normalizeText(presentation?.text || productMaster?.text || await extractRawText(filePath));
       const promptPath = path.join(targetFolder, 'prompt.txt');
       const prompt = fs.existsSync(promptPath) ? fs.readFileSync(promptPath, 'utf8') : '';
-      const chunks = chunkText(rawText);
+      const chunks = presentation
+        ? presentation.slides.map((slide: any) => ({
+            id: slide.id,
+            slideNumber: slide.slideNumber,
+            charStart: 0,
+            charEnd: slide.text.length,
+            text: slide.text,
+          }))
+        : productMaster
+          ? productMaster.records.map((record: any) => ({
+              id: record.id,
+              charStart: 0,
+              charEnd: record.description.length,
+              text: [
+                record.productType,
+                record.subType,
+                record.mlfb,
+                record.description,
+                record.priceGroup ? `PG ${record.priceGroup}` : '',
+                record.listPriceRmbInclVat != null ? `RMB ${record.listPriceRmbInclVat}` : '',
+              ].filter(Boolean).join(' | '),
+            }))
+          : chunkText(rawText);
       const mlfbCandidates = extractMlfbCandidates(rawText);
 
       const doc = {
@@ -201,12 +229,16 @@ export async function indexFolderLocally(folderName: string, force = false): Pro
         stats: {
           chars: rawText.length,
           chunkCount: chunks.length,
+          ...(presentation?.stats || {}),
+          ...(productMaster?.stats || {}),
         },
         extracted: {
           mlfbCandidates,
           headingCandidates: extractHeadingCandidates(rawText),
         },
         chunks,
+        ...(presentation ? { slides: presentation.slides } : {}),
+        ...(productMaster ? { records: productMaster.records, kind: 'product_master' } : {}),
       };
 
       fs.writeFileSync(outputPath, JSON.stringify(doc, null, 2), 'utf8');

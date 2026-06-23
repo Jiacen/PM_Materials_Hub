@@ -2,9 +2,9 @@ import fs from 'fs';
 import path from 'path';
 
 export const STANDARD_FOLDERS = [
-  "01_Catalogue_产品样本",
-  "02_Manual_产品技术手册",
-  "03_产品物料表格",
+  "01_产品物料表格",
+  "02_Catalogue_产品样本",
+  "03_Manual_产品技术手册",
   "04_Slides_Technical&Sales",
   "05_Sales_Reference_成功案例",
   "06_Sales_Fighting_Guide",

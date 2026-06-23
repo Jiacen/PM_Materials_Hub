@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { llmService } from '@/lib/llmService';
+import { getMaterialProfile } from '@/lib/materialProfiles';
 
 const SETTINGS_PATH = path.join(process.cwd(), 'config', 'settings.json');
 
@@ -19,8 +20,11 @@ function buildLlmPayloadFromRawIndex(rawIndex: any) {
     source: rawIndex.source,
     extracted: rawIndex.extracted,
     stats: rawIndex.stats,
+    slides: Array.isArray(rawIndex.slides) ? rawIndex.slides : undefined,
+    records: Array.isArray(rawIndex.records) ? rawIndex.records : undefined,
     chunks: chunks.map((chunk: any) => ({
       id: chunk.id,
+      slideNumber: chunk.slideNumber,
       charStart: chunk.charStart,
       charEnd: chunk.charEnd,
       text: chunk.text,
@@ -55,6 +59,73 @@ function normalizeStructuredData(data: any) {
         : [],
     })),
   };
+}
+
+function ensureMlfbCoverage(data: any, rawIndex: any) {
+  const products = Array.isArray(data?.products) ? [...data.products] : [];
+  const candidates = Array.isArray(rawIndex?.extracted?.mlfbCandidates)
+    ? rawIndex.extracted.mlfbCandidates.map(normalizeMlfb).filter(Boolean)
+    : [];
+  const existing = new Set(products.flatMap((product: any) => {
+    const values = Array.isArray(product?.mlfb) ? product.mlfb : [product?.mlfb];
+    return values.map(normalizeMlfb).filter(Boolean);
+  }));
+  const slides = Array.isArray(rawIndex?.slides) ? rawIndex.slides : [];
+  const chunks = Array.isArray(rawIndex?.chunks) ? rawIndex.chunks : [];
+
+  for (const mlfb of candidates) {
+    if (existing.has(mlfb)) continue;
+
+    const slide = slides.find((item: any) => String(item?.text || '').includes(mlfb));
+    const tableRow = slide?.tables
+      ?.flatMap((table: any) => Array.isArray(table) ? table : [])
+      .find((row: any) => Array.isArray(row) && row.some((cell: any) => String(cell).includes(mlfb)));
+    const chunk = chunks.find((item: any) => String(item?.text || '').includes(mlfb));
+    const rowCells = Array.isArray(tableRow)
+      ? tableRow.map((cell: any) => String(cell || '').trim()).filter(Boolean)
+      : [];
+    const releaseInfo = rowCells.find((cell: string) => /\b(20\d{2}|January|February|March|April|May|June|July|August|September|October|November|December)\b/i.test(cell)) || '';
+    const nameParts = rowCells.filter((cell: string) => cell !== mlfb && cell !== releaseInfo);
+    const slideLines = String(slide?.text || '').split('\n').map((line) => line.trim()).filter(Boolean);
+    const lineIndex = slideLines.findIndex((line) => line.includes(mlfb));
+    const evidenceLine = lineIndex >= 0 ? slideLines[lineIndex] : '';
+    const cleanName = (value: string) => value
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\b6ES7\d{3}-[A-Z0-9*]{5}-[A-Z0-9*]{4}\b/gi, '')
+      .replace(/\band\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/[:：,，;；]+$/g, '')
+      .trim();
+    const isWeakName = (value: string) => !value || /^\(.*ET 200SP.*\)$/i.test(value);
+    let nearbyName = cleanName(evidenceLine);
+    if (isWeakName(nearbyName)) {
+      for (let offset = 1; offset <= 3 && lineIndex - offset >= 0; offset += 1) {
+        const candidate = cleanName(slideLines[lineIndex - offset]);
+        if (!isWeakName(candidate) && !candidate.includes('附件 & 备件')) {
+          nearbyName = candidate;
+          break;
+        }
+      }
+    }
+    const productName = nameParts.join(' · ') || nearbyName || mlfb;
+    const evidenceId = slide?.id || chunk?.id;
+
+    products.push({
+      item_type: mlfb.startsWith('6ES7193') ? 'accessory' : 'module',
+      product_name: productName,
+      mlfb,
+      summary: productName === mlfb ? '演示文稿中明确列出的订货型号。' : `演示文稿订货信息：${productName}`,
+      key_features: [],
+      technical_specs: [],
+      application_scenarios: [],
+      release_info: releaseInfo,
+      evidence_chunk_ids: evidenceId ? [evidenceId] : [],
+      extraction_source: 'deterministic_mlfb_backfill',
+    });
+    existing.add(mlfb);
+  }
+
+  return { ...data, products };
 }
 
 export async function POST(req: Request) {
@@ -120,9 +191,13 @@ You MUST output valid JSON only. Do not wrap in markdown or any other text.
 User Rule: ${prompt}`;
 
         const llmPayload = buildLlmPayloadFromRawIndex(rawIndex);
-        const structuredData = normalizeStructuredData(
+        const normalizedData = normalizeStructuredData(
           await llmService.extractInsightsInChunks(systemPrompt, llmPayload)
         );
+        const profile = getMaterialProfile(folderName);
+        const structuredData = profile.enforceMlfbCoverage
+          ? ensureMlfbCoverage(normalizedData, rawIndex)
+          : normalizedData;
 
         // Save result
         fs.writeFileSync(indexFilePath, JSON.stringify(structuredData, null, 2), 'utf8');

@@ -93,6 +93,140 @@ function officeParserResultToText(result) {
   return String(result.content || '');
 }
 
+function cleanPresentationText(value) {
+  return String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\u0000/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function isPresentationChrome(text) {
+  return /^Page\s+\d+$/i.test(text)
+    || /^Unrestricted\s*\|/i.test(text)
+    || /^©\s*Siemens/i.test(text)
+    || /^Notizzettel\s+\d+$/i.test(text);
+}
+
+async function extractPresentationStructure(filePath) {
+  const ast = await officeParser.parseOffice(filePath, { extractAttachments: true });
+  const slides = (Array.isArray(ast?.content) ? ast.content : [])
+    .filter((node) => node?.type === 'slide')
+    .map((slide, index) => {
+      const slideNumber = Number(slide?.metadata?.slideNumber) || index + 1;
+      const children = Array.isArray(slide?.children) ? slide.children : [];
+      const headings = children
+        .filter((item) => item?.type === 'heading')
+        .map((item) => cleanPresentationText(item.text))
+        .filter(Boolean);
+      const textItems = children
+        .filter((item) => ['heading', 'paragraph', 'list'].includes(item?.type))
+        .map((item) => ({
+          type: item.type,
+          text: cleanPresentationText(item.text),
+          level: item?.metadata?.indentation ?? item?.metadata?.level ?? null,
+        }))
+        .filter((item) => item.text && !isPresentationChrome(item.text));
+      const tables = children
+        .filter((item) => item?.type === 'table')
+        .map((table) => (Array.isArray(table.children) ? table.children : []).map((row) =>
+          (Array.isArray(row?.children) ? row.children : []).map((cell) => cleanPresentationText(cell?.text))
+        ));
+      const notes = (Array.isArray(slide?.notes) ? slide.notes : [])
+        .flatMap((note) => Array.isArray(note?.children) ? note.children : [])
+        .map((item) => cleanPresentationText(item?.text))
+        .filter((text) => text && !isPresentationChrome(text));
+      const imageRefs = children
+        .filter((item) => item?.type === 'image')
+        .map((item) => ({
+          name: item?.metadata?.attachmentName || '',
+          altText: cleanPresentationText(item?.metadata?.altText),
+        }))
+        .filter((item) => item.name);
+      const allText = [
+        ...textItems.map((item) => item.text),
+        ...tables.flat(2).filter(Boolean),
+        ...notes,
+      ];
+
+      return {
+        id: `slide_${String(slideNumber).padStart(4, '0')}`,
+        slideNumber,
+        title: headings[0] || textItems[0]?.text || `Slide ${slideNumber}`,
+        textItems,
+        tables,
+        notes,
+        imageRefs,
+        text: cleanPresentationText(allText.join('\n')),
+      };
+    });
+
+  return {
+    text: slides.map((slide) => `--- Slide ${slide.slideNumber}: ${slide.title} ---\n${slide.text}`).join('\n\n'),
+    slides,
+    stats: {
+      slides: slides.length,
+      images: Array.isArray(ast?.attachments) ? ast.attachments.length : 0,
+      slidesWithNotes: slides.filter((slide) => slide.notes.length > 0).length,
+      tables: slides.reduce((sum, slide) => sum + slide.tables.length, 0),
+    },
+  };
+}
+
+function normalizeWorkbookMlfb(value) {
+  const compact = String(value || '').toUpperCase().replace(/[^A-Z0-9*]/g, '');
+  const match = compact.match(/^(6ES7\d{3})([A-Z0-9*]{5})([A-Z0-9*]{4})$/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
+}
+
+function extractProductMasterStructure(filePath) {
+  const workbook = xlsx.readFile(filePath, { cellDates: true });
+  const records = [];
+
+  for (const sheetName of workbook.SheetNames) {
+    const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], {
+      header: 1,
+      defval: null,
+      raw: false,
+    });
+    let productType = '';
+    let subType = '';
+    for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+      const row = rows[rowIndex] || [];
+      productType = String(row[0] || productType || '').trim();
+      subType = String(row[1] || subType || '').trim();
+      const mlfb = normalizeWorkbookMlfb(row[2]);
+      if (!mlfb) continue;
+      const priceText = String(row[5] || '').replace(/,/g, '').trim();
+      records.push({
+        id: `mlfb_${mlfb}`,
+        sheetName,
+        rowNumber: rowIndex + 1,
+        productType,
+        subType,
+        mlfb,
+        description: String(row[3] || '').trim(),
+        priceGroup: String(row[4] || '').trim(),
+        listPriceRmbInclVat: priceText && Number.isFinite(Number(priceText)) ? Number(priceText) : null,
+      });
+    }
+  }
+
+  return {
+    records,
+    stats: { sheets: workbook.SheetNames, recordCount: records.length },
+    text: records.map((record) => [
+      record.productType,
+      record.subType,
+      record.mlfb,
+      record.description,
+      record.priceGroup ? `PG ${record.priceGroup}` : '',
+      record.listPriceRmbInclVat != null ? `RMB ${record.listPriceRmbInclVat}` : '',
+    ].filter(Boolean).join(' | ')).join('\n'),
+  };
+}
+
 async function extractScannedPdfText(fileBuffer) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const document = await pdfjs.getDocument({
@@ -145,14 +279,7 @@ async function extractText(filePath) {
     };
   }
   if (ext === '.xlsx' || ext === '.xls') {
-    const workbook = xlsx.readFile(filePath);
-    let text = '';
-    for (const sheetName of workbook.SheetNames) {
-      const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
-      text += `\n\n--- Sheet: ${sheetName} ---\n`;
-      text += rows.map((row) => row.join(' | ')).join('\n');
-    }
-    return { text, stats: { sheets: workbook.SheetNames } };
+    return extractProductMasterStructure(filePath);
   }
   if (ext === '.docx') {
     const result = await mammoth.extractRawText({ buffer: fs.readFileSync(filePath) });
@@ -161,7 +288,10 @@ async function extractText(filePath) {
       stats: {},
     };
   }
-  if (['.doc', '.pptx', '.ppt'].includes(ext)) {
+  if (['.pptx', '.ppt'].includes(ext)) {
+    return extractPresentationStructure(filePath);
+  }
+  if (ext === '.doc') {
     return {
       text: officeParserResultToText(await officeParser.parseOffice(filePath)),
       stats: {},
@@ -233,6 +363,8 @@ async function indexFile(workspacePath, folderName, fileName) {
   }
 
   const text = normalizeText(extracted.text);
+  const slides = Array.isArray(extracted.slides) ? extracted.slides : null;
+  const records = Array.isArray(extracted.records) ? extracted.records : null;
   const promptPath = path.join(workspacePath, folderName, 'prompt.txt');
   const prompt = fs.existsSync(promptPath) ? fs.readFileSync(promptPath, 'utf8') : '';
 
@@ -255,13 +387,37 @@ async function indexFile(workspacePath, folderName, fileName) {
     stats: {
       ...extracted.stats,
       chars: text.length,
-      chunkCount: Math.ceil(text.length / 5600),
+      chunkCount: slides ? slides.length : records ? records.length : Math.ceil(text.length / 5600),
     },
     extracted: {
       mlfbCandidates: extractMlfbCandidates(text),
       headingCandidates: extractHeadingCandidates(text),
     },
-    chunks: chunkText(text),
+    chunks: slides
+      ? slides.map((slide) => ({
+          id: slide.id,
+          slideNumber: slide.slideNumber,
+          charStart: 0,
+          charEnd: slide.text.length,
+          text: slide.text,
+        }))
+      : records
+        ? records.map((record) => ({
+            id: record.id,
+            charStart: 0,
+            charEnd: record.description.length,
+            text: [
+              record.productType,
+              record.subType,
+              record.mlfb,
+              record.description,
+              record.priceGroup ? `PG ${record.priceGroup}` : '',
+              record.listPriceRmbInclVat != null ? `RMB ${record.listPriceRmbInclVat}` : '',
+            ].filter(Boolean).join(' | '),
+          }))
+        : chunkText(text),
+    ...(slides ? { slides } : {}),
+    ...(records ? { records, kind: 'product_master' } : {}),
   };
 
   fs.mkdirSync(safeOutputDir, { recursive: true });

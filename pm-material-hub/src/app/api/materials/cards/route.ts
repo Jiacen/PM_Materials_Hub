@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { getMaterialProfile } from '@/lib/materialProfiles';
 
 type MaterialCard = {
   id: string;
-  type: 'document' | 'mlfb' | 'evidence' | 'product' | 'module' | 'accessory' | 'certificate' | 'image';
-  stage: 'ai' | 'raw';
+  type: 'document' | 'mlfb' | 'evidence' | 'product' | 'module' | 'accessory' | 'certificate'
+    | 'product_master' | 'product_overview' | 'technical_feature' | 'technical_spec' | 'limitation'
+    | 'value_proposition' | 'application' | 'comparison' | 'case_study' | 'customer_pain'
+    | 'solution' | 'business_result' | 'sales_message' | 'objection_handling' | 'competitive_claim'
+    | 'release_notice' | 'faq' | 'troubleshooting' | 'image';
+  stage: 'ai' | 'master' | 'raw';
   title: string;
   subtitle: string;
   body: string;
@@ -42,13 +47,14 @@ function findEvidenceSnippet(chunks: any[], value: string) {
 function cardsFromAiJson(folderName: string, sourceFile: string, ai: any): MaterialCard[] {
   const products = Array.isArray(ai?.products) ? ai.products : [];
   return products.map((product: any, index: number) => {
-    const itemType = product.item_type === 'certificate'
-      ? 'certificate'
-      : product.item_type === 'accessory'
-      ? 'accessory'
-      : product.item_type === 'module'
-        ? 'module'
-        : 'product';
+    const supportedTypes = new Set([
+      'product', 'module', 'accessory', 'certificate', 'value_proposition',
+      'product_overview', 'technical_feature', 'technical_spec', 'limitation',
+      'application', 'comparison', 'case_study', 'customer_pain', 'solution',
+      'business_result', 'sales_message', 'objection_handling', 'competitive_claim',
+      'release_notice', 'faq', 'troubleshooting',
+    ]);
+    const itemType = supportedTypes.has(product.item_type) ? product.item_type : 'product';
     const mlfb = Array.isArray(product.mlfb) ? product.mlfb.join(', ') : String(product.mlfb || '');
     const featureText = Array.isArray(product.key_features) ? product.key_features.join(' ') : '';
     const specText = Array.isArray(product.technical_specs) ? product.technical_specs.slice(0, 4).join(' · ') : '';
@@ -61,6 +67,7 @@ function cardsFromAiJson(folderName: string, sourceFile: string, ai: any): Mater
             : '',
         ].filter(Boolean).join(' ')
       : '';
+    const summaryText = String(product.summary || product.body || '');
 
     return {
       id: `${safeId(sourceFile)}-ai-${index}-${safeId(product.product_name || mlfb || String(index))}`,
@@ -70,7 +77,7 @@ function cardsFromAiJson(folderName: string, sourceFile: string, ai: any): Mater
       subtitle: itemType === 'certificate'
         ? String(product.certificate_number || '认证证书')
         : mlfb || (itemType === 'accessory' ? '附件/备件' : '大模型精提取'),
-      body: compactText(certificateText || featureText || specText || '已由大模型基于 raw JSON 规整合并。'),
+      body: compactText(certificateText || summaryText || featureText || specText || '已由大模型基于 raw JSON 规整合并。'),
       sourceFile,
       folderName,
       chunkIds: Array.isArray(product.evidence_chunk_ids) ? product.evidence_chunk_ids : [],
@@ -83,6 +90,26 @@ function cardsFromRawJson(folderName: string, fileName: string, raw: any): Mater
   const chunks = Array.isArray(raw?.chunks) ? raw.chunks : [];
   const mlfbCandidates = Array.isArray(raw?.extracted?.mlfbCandidates) ? raw.extracted.mlfbCandidates : [];
   const cards: MaterialCard[] = [];
+  const profile = getMaterialProfile(folderName);
+
+  if (raw?.kind === 'product_master' && Array.isArray(raw?.records)) {
+    return raw.records.map((record: any) => ({
+      id: `${safeId(sourceFile)}-master-${safeId(record.mlfb)}`,
+      type: 'product_master',
+      stage: 'master',
+      title: record.description || record.mlfb,
+      subtitle: record.mlfb,
+      body: compactText([
+        record.productType,
+        record.subType,
+        record.priceGroup ? `价格组 ${record.priceGroup}` : '',
+        record.listPriceRmbInclVat != null ? `含税列表价 RMB ${Number(record.listPriceRmbInclVat).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '',
+      ].filter(Boolean).join(' · ')),
+      sourceFile,
+      folderName,
+      chunkIds: record.id ? [record.id] : [],
+    }));
+  }
 
   cards.push({
     id: `${safeId(sourceFile)}-document`,
@@ -95,6 +122,8 @@ function cardsFromRawJson(folderName: string, fileName: string, raw: any): Mater
     folderName,
     chunkIds: chunks.slice(0, 2).map((chunk: any) => chunk.id).filter(Boolean),
   });
+
+  if (!profile.showRawMlfbCards) return cards;
 
   for (const mlfb of mlfbCandidates.slice(0, 8)) {
     const evidence = findEvidenceSnippet(chunks, mlfb);
