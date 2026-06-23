@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { getWorkspacePath } from '@/lib/fileSystem';
+import { getWorkspacePath, isIgnoredWorkspaceFile } from '@/lib/fileSystem';
 
 const OUTPUT_ROOT = path.join(process.cwd(), 'data', 'local-json-indexes');
 
@@ -111,7 +111,7 @@ export async function indexFolderLocally(folderName: string, force = false): Pro
   const files = fs.readdirSync(targetFolder, { withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => entry.name)
-    .filter((file) => file.toLowerCase() !== 'prompt.txt');
+    .filter((file) => !isIgnoredWorkspaceFile(file));
 
   const outputDir = path.join(OUTPUT_ROOT, folderName);
   fs.mkdirSync(outputDir, { recursive: true });
@@ -179,6 +179,10 @@ export async function indexFolderLocally(folderName: string, force = false): Pro
       const presentation = ['.ppt', '.pptx'].includes(ext)
         ? await extractPresentationStructure(filePath)
         : null;
+      if (presentation) {
+        const { ensurePresentationPreviews } = await import('@/lib/presentationPreview');
+        await ensurePresentationPreviews(folderName, file, presentation.slides.length, force);
+      }
       const productMaster = ['.xls', '.xlsx'].includes(ext)
         ? extractProductMasterStructure(filePath)
         : null;
@@ -257,6 +261,8 @@ export async function indexFolderLocally(folderName: string, force = false): Pro
     }
   }
 
+  const { buildFolderCatalog } = await import('@/lib/materialCatalog');
+  buildFolderCatalog(folderName);
   return results;
 }
 

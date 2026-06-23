@@ -16,6 +16,11 @@ export const STANDARD_FOLDERS = [
 
 const SETTINGS_PATH = path.join(process.cwd(), 'config', 'settings.json');
 
+export function isIgnoredWorkspaceFile(fileName: string): boolean {
+  const lower = fileName.toLowerCase();
+  return lower === 'prompt.txt' || fileName.startsWith('~$') || fileName.startsWith('.');
+}
+
 // Get current workspace path from settings
 export function getWorkspacePath(): string | null {
   try {
@@ -72,7 +77,7 @@ export function scanWorkspaceFiles(): any[] {
       if (stat.isDirectory()) {
         walk(fullPath, itemRelative);
       } else {
-        if (item.toLowerCase() === 'prompt.txt') continue;
+        if (isIgnoredWorkspaceFile(item)) continue;
         results.push({
           absolutePath: fullPath,
           relativePath: itemRelative,

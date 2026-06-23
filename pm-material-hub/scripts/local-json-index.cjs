@@ -468,7 +468,7 @@ async function main() {
     const files = fs.readdirSync(folderPath, { withFileTypes: true })
       .filter((entry) => entry.isFile())
       .map((entry) => entry.name)
-      .filter((name) => name.toLowerCase() !== 'prompt.txt');
+      .filter((name) => name.toLowerCase() !== 'prompt.txt' && !name.startsWith('~$') && !name.startsWith('.'));
 
     for (const fileName of files) {
       results.push(await indexFile(workspacePath, folderName, fileName));

@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { llmService } from '@/lib/llmService';
 import { getMaterialProfile } from '@/lib/materialProfiles';
+import { buildFolderCatalog } from '@/lib/materialCatalog';
 
 const SETTINGS_PATH = path.join(process.cwd(), 'config', 'settings.json');
 
@@ -59,6 +60,115 @@ function normalizeStructuredData(data: any) {
         : [],
     })),
   };
+}
+
+function validateRefinedOutput(data: any, rawIndex: any) {
+  const products = Array.isArray(data?.products) ? data.products : [];
+  const slides = Array.isArray(rawIndex?.slides) ? rawIndex.slides : [];
+  if (!products.length) return { valid: false, reason: 'No refined cards returned' };
+  if (!slides.length) return { valid: true, reason: '' };
+
+  const validEvidence = new Set(slides.map((slide: any) => String(slide?.id || '')).filter(Boolean));
+  const minimumCards = slides.length >= 12 ? 3 : slides.length >= 5 ? 2 : 1;
+  if (products.length < minimumCards) {
+    return { valid: false, reason: `Presentation refinement returned ${products.length} cards; minimum is ${minimumCards}` };
+  }
+
+  const usedEvidence = new Set<string>();
+  for (const product of products) {
+    const evidenceIds = Array.isArray(product?.evidence_chunk_ids) ? product.evidence_chunk_ids.map(String) : [];
+    if (!evidenceIds.length || evidenceIds.some((id: string) => !validEvidence.has(id))) {
+      return { valid: false, reason: 'A refined card has missing or invalid slide evidence' };
+    }
+    evidenceIds.forEach((id: string) => usedEvidence.add(id));
+    if (evidenceIds.length > Math.max(10, Math.ceil(slides.length * 0.6))) {
+      return { valid: false, reason: 'A refined card merges too many presentation pages' };
+    }
+    const mlfbValues = Array.isArray(product?.mlfb)
+      ? product.mlfb
+      : String(product?.mlfb || '').split(',');
+    if (mlfbValues.filter(Boolean).length > 4 && !['module', 'accessory'].includes(product?.item_type)) {
+      return { valid: false, reason: 'A narrative card aggregates too many MLFB values' };
+    }
+  }
+  if (usedEvidence.size < minimumCards) {
+    return { valid: false, reason: 'Refined cards do not cover enough distinct slide evidence' };
+  }
+  return { valid: true, reason: '' };
+}
+
+function compact(value: unknown, maxLength = 180) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function deterministicPresentationFallback(rawIndex: any) {
+  const slides = Array.isArray(rawIndex?.slides) ? rawIndex.slides : [];
+  const excluded = /^(thank|thanks|目录|议程|挑战和机会|发现更多|常用链接)/i;
+  const usable = slides.filter((slide: any) => {
+    const title = String(slide?.title || '').trim();
+    const text = String(slide?.text || '');
+    return title && !excluded.test(title) && text.length >= 40;
+  });
+  const rules = [
+    { type: 'product', pattern: /定位|概览|baseline|产品组合|特点/i, limit: 1 },
+    { type: 'value_proposition', pattern: /价值|亮点|降低|成本|经济|可靠|高标准/i, limit: 2 },
+    { type: 'application', pattern: /应用|场景|行业|传送|输送/i, limit: 1 },
+    { type: 'comparison', pattern: /比较|对比|vs\.?|区别/i, limit: 1 },
+    { type: 'sales_message', pattern: /挑战|机会|异议|复杂度|投资/i, limit: 1 },
+  ];
+  const selectedIds = new Set<string>();
+  const products: any[] = [];
+
+  for (const rule of rules) {
+    const matches = usable.filter((slide: any) =>
+      !selectedIds.has(slide.id) && rule.pattern.test(`${slide.title}\n${slide.text}`)
+    ).sort((a: any, b: any) => {
+      const titleScoreA = rule.pattern.test(String(a.title || '')) ? 1 : 0;
+      const titleScoreB = rule.pattern.test(String(b.title || '')) ? 1 : 0;
+      return titleScoreB - titleScoreA || Number(a.slideNumber || 0) - Number(b.slideNumber || 0);
+    }).slice(0, rule.limit);
+    for (const slide of matches) {
+      selectedIds.add(slide.id);
+      const textItems = Array.isArray(slide?.textItems) ? slide.textItems : [];
+      const facts = textItems
+        .map((item: any) => compact(item?.text, 100))
+        .filter((text: string) => text && text !== compact(slide.title, 100))
+        .slice(0, 4);
+      const specs = facts.filter((text: string) => /\d|PROFINET|RJ45|IRT|IP\d/i.test(text)).slice(0, 4);
+      products.push({
+        item_type: rule.type,
+        product_name: compact(slide.title, 90),
+        mlfb: '',
+        summary: compact(slide.text, 160),
+        key_features: facts.slice(0, 4),
+        technical_specs: specs,
+        application_scenarios: rule.type === 'application' ? facts.slice(0, 4) : [],
+        release_info: '',
+        evidence_chunk_ids: [slide.id],
+        extraction_source: 'deterministic_presentation_fallback',
+      });
+    }
+  }
+
+  for (const slide of usable) {
+    if (products.length >= 4 || selectedIds.has(slide.id)) continue;
+    selectedIds.add(slide.id);
+    products.push({
+      item_type: 'technical_feature',
+      product_name: compact(slide.title, 90),
+      mlfb: '',
+      summary: compact(slide.text, 160),
+      key_features: [],
+      technical_specs: [],
+      application_scenarios: [],
+      release_info: '',
+      evidence_chunk_ids: [slide.id],
+      extraction_source: 'deterministic_presentation_fallback',
+    });
+  }
+
+  return { products };
 }
 
 function ensureMlfbCoverage(data: any, rawIndex: any) {
@@ -130,7 +240,7 @@ function ensureMlfbCoverage(data: any, rawIndex: any) {
 
 export async function POST(req: Request) {
   try {
-    const { folderName, prompt } = await req.json();
+    const { folderName, prompt, force } = await req.json();
     
     if (!folderName || !prompt) {
       return NextResponse.json({ success: false, error: 'folderName and prompt are required' }, { status: 400 });
@@ -173,10 +283,12 @@ export async function POST(req: Request) {
       const sourceFileName = rawIndex?.source?.fileName || file.replace(/\.raw\.json$/, '');
       const indexFilePath = path.join(indexBaseDir, `${sourceFileName}.meta.json`);
 
-      // Skip if already extracted
-      if (fs.existsSync(indexFilePath)) {
-        results.push({ file, status: 'skipped', message: 'Already extracted' });
-        continue;
+      if (!force && fs.existsSync(indexFilePath)) {
+        const existing = JSON.parse(fs.readFileSync(indexFilePath, 'utf8'));
+        if (existing?._index?.sourceSha256 === rawIndex?.source?.sha256) {
+          results.push({ file, status: 'skipped', message: 'Already extracted from current source index' });
+          continue;
+        }
       }
 
       try {
@@ -187,6 +299,7 @@ You will receive a local raw JSON index generated from a source document. The ra
 Extract information strictly following the user's prompt.
 Use only evidence present in the raw JSON. Do not use external knowledge, assumptions, or prior memory.
 If a field is not supported by the raw JSON evidence, write "文档未明确说明".
+For a multi-page presentation, create multiple reusable topic cards when the source contains distinct themes. Do not collapse the entire deck into one giant product card.
 You MUST output valid JSON only. Do not wrap in markdown or any other text.
 User Rule: ${prompt}`;
 
@@ -199,9 +312,44 @@ User Rule: ${prompt}`;
           ? ensureMlfbCoverage(normalizedData, rawIndex)
           : normalizedData;
 
-        // Save result
-        fs.writeFileSync(indexFilePath, JSON.stringify(structuredData, null, 2), 'utf8');
+        let publishData = structuredData;
+        let validation = validateRefinedOutput(publishData, rawIndex);
+        let finalizedBy = 'llm';
+        if (!validation.valid && Array.isArray(rawIndex?.slides)) {
+          publishData = deterministicPresentationFallback(rawIndex);
+          validation = validateRefinedOutput(publishData, rawIndex);
+          finalizedBy = 'deterministic-fallback';
+        }
+        const persistedData = {
+          ...publishData,
+          _index: {
+            schemaVersion: 1,
+            sourceFile: sourceFileName,
+            sourceSha256: rawIndex?.source?.sha256 || '',
+            rawGeneratedAt: rawIndex?.generatedAt || null,
+            refinedAt: new Date().toISOString(),
+            finalizedBy,
+          },
+        };
+        const candidatePath = `${indexFilePath}.candidate.json`;
+        fs.writeFileSync(candidatePath, JSON.stringify(persistedData, null, 2), 'utf8');
+        if (!validation.valid) {
+          results.push({
+            file: sourceFileName,
+            rawJson: file,
+            status: 'rejected',
+            error: validation.reason,
+            candidate: path.basename(candidatePath),
+          });
+          buildFolderCatalog(folderName);
+          continue;
+        }
+        if (fs.existsSync(indexFilePath)) {
+          fs.copyFileSync(indexFilePath, `${indexFilePath}.backup.${Date.now()}.json`);
+        }
+        fs.writeFileSync(indexFilePath, JSON.stringify(persistedData, null, 2), 'utf8');
         results.push({ file: sourceFileName, rawJson: file, status: 'success' });
+        buildFolderCatalog(folderName);
         
       } catch (err: any) {
         console.error(`Failed to process ${file}:`, err);
@@ -213,6 +361,7 @@ User Rule: ${prompt}`;
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
 
+    buildFolderCatalog(folderName);
     return NextResponse.json({ success: true, results });
 
   } catch (err: any) {

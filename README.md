@@ -112,20 +112,49 @@ MLFB is not the universal card granularity. In particular, slides, references, a
 
 ## Content Processing Model
 
+### Standalone Runtime Requirement
+
+Codex is only a development and testing tool for this repository. It must not participate in production card generation.
+
+Every supported folder must be processed independently by the installed application through local parsers, indexing scripts, backend APIs, configured LLM services, deterministic validators, and persisted generated data. A new machine with the application, dependencies, workspace files, and optional model configuration must be able to rebuild the same material structure without a Codex conversation or Codex-generated intermediate files.
+
+When no model is configured, deterministic local indexing and locally generated materials must remain available. Only model-refined cards should be unavailable.
+
+### PPT/PPTX User Workflow
+
+The production workflow is:
+
+1. Put one or more presentations in the relevant material folder and click **Sync**.
+2. Click **生成 / 更新本地 JSON** to create one page-level `raw.json` per presentation, true original-page PNG previews, and a lightweight folder catalog.
+3. Run the advanced LLM extraction action to create one validated refined-card `meta.json` per presentation. The model reads JSON rather than opening the PPT/PPTX.
+4. Use each independently collapsible presentation group in the material library.
+
+PowerPoint processing uses three layers:
+
+- `*.raw.json`: complete machine-readable page evidence
+- `*.meta.json`: validated reusable refined cards
+- `_folder.catalog.json`: lightweight routing metadata used before bounded retrieval of relevant cards and pages
+
+Model candidates are validated before publication. Invalid giant-card merges or unsupported evidence cannot replace the current published index. Existing refined output is backed up before replacement, and a deterministic evidence-linked fallback may be used and labelled when model output fails validation.
+
 ### Local JSON First
 
-The current implementation uses a two-layer extraction model:
+The current implementation uses local evidence, refined cards, and a lightweight routing catalog:
 
 1. Local indexing compresses source files into JSON.
 2. Optional LLM extraction reads those JSON indexes instead of reading the original documents directly.
+3. Folder catalogs route later model requests to bounded relevant files, cards, and evidence pages.
 
 This keeps repeated extraction cheaper, faster, and easier to inspect.
+
+The application exposes `GET /api/materials/catalog` for lightweight routing and `POST /api/materials/context` for bounded retrieval.
 
 ### Current Index Types
 
 - `*.raw.json`: generated from documents such as PDF, Word, PowerPoint, Excel, and text-like files. These files store metadata, extracted text chunks, candidate headings, MLFB candidates, and evidence references.
 - `*.image.json`: generated from image files. These files store image metadata, dimensions, format, inferred usage tags, and browser asset URLs.
 - `*.meta.json`: refined or structured outputs used by the material card API.
+- `_folder.catalog.json`: file-level routing index with source/index freshness, counts, topics, evidence references, preview type, and generation method.
 
 All of these are generated local artifacts and should stay outside Git.
 
@@ -133,8 +162,13 @@ Extraction behavior is folder-specific and configured in `pm-material-hub/src/li
 
 - Excel product lists generate deterministic master-data records without requiring an LLM.
 - PowerPoint files are indexed page by page, preserving slide titles, text, lists, tables, notes, image references, and slide evidence IDs.
+- Original PowerPoint page previews are true PNG exports from the installed Microsoft PowerPoint application, not JSON-derived reconstructions.
+- Multiple PowerPoint files are grouped by source file. Each file has independently collapsible refined-content and original-page sections.
+- PowerPoint files do not create an extra generic raw-document candidate card because their page cards already preserve the source.
 - PDFs use their embedded text layer first. Scanned PDFs automatically fall back to local Tesseract OCR.
 - LLM extraction reads local JSON, not the original Office/PDF file.
+- Folder-level model use should read the catalog first and retrieve bounded context through the application rather than loading every source index.
+- Changed source files mark indexes stale; removed source files are marked orphaned.
 - MLFB-completeness enforcement is enabled only where model-level coverage is a business requirement.
 
 ### Image Material Strategy

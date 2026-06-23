@@ -44,10 +44,51 @@ The first folder is processed first and acts as the product master index. Other 
 3. Optional KIMI extraction reads local JSON and writes refined results under `data/indexes/`.
 4. The material-card API combines master data, refined theme cards, raw evidence, and image assets.
 
+### PPT/PPTX Operating Flow
+
+For normal use:
+
+1. Add one or more PPT/PPTX files to the material folder and click **Sync**.
+2. Click **生成 / 更新本地 JSON**. The application generates:
+   - one `*.raw.json` per presentation
+   - true original-slide PNG previews under `data/slide-previews/`
+   - the lightweight `_folder.catalog.json`
+3. Open the advanced extraction section and run the LLM extraction action. The model reads the `raw.json`, not the original presentation, and generates one validated `*.meta.json` per presentation.
+4. The frontend displays each presentation as a collapsible group containing refined cards and original pages.
+
+The three PPT/PPTX data layers are:
+
+- `*.raw.json`: complete page-level text, lists, tables, notes, image references, page numbers, and evidence IDs
+- `*.meta.json`: validated reusable refined cards
+- `_folder.catalog.json`: lightweight routing metadata for selecting relevant files before bounded context retrieval
+
+`GET /api/materials/catalog` exposes the routing catalog. `POST /api/materials/context` returns a bounded number of relevant files, cards, and evidence pages so downstream model calls do not read an entire folder unnecessarily.
+
+Refined output is published only after validation. Invalid one-card deck merges or unsupported evidence cannot overwrite the current published index. The application stores a candidate, backs up the prior index before replacement, and may publish an explicitly labelled deterministic fallback.
+
+## Standalone Runtime Requirement
+
+Codex is used only to develop and test this application. It is not part of the production material pipeline.
+
+On another machine, the application must independently perform:
+
+- local parsing and JSON indexing for every supported folder and file type
+- deterministic card generation where applicable
+- folder-specific LLM extraction and light refinement through the configured model API
+- structural and evidence validation with safe fallback behavior
+- card persistence, page preview generation, and frontend loading
+
+No production card may require a Codex conversation, Codex-generated intermediate file, or manual intervention by Codex. Without an LLM configuration, deterministic local materials must continue to work; only model-refined cards are unavailable.
+
 Format behavior:
 
 - Excel product lists become deterministic master-data records without an LLM.
 - PPT/PPTX files are preserved page by page, including text, lists, tables, notes, image references, and slide evidence IDs.
+- Each PPT/PPTX is displayed as an independently collapsible file group containing separate refined-content and original-page sections.
+- Original-page thumbnails are real PNG exports produced by installed Microsoft PowerPoint on Windows and cached under `data/slide-previews/`. They are not reconstructed from extracted JSON.
+- If PowerPoint is unavailable, the app reports that native previews cannot be generated instead of showing a synthetic summary image.
+- PPT/PPTX files do not create a generic raw-document candidate card because their original-page cards already provide the complete source layer.
+- Source changes mark indexes stale; missing source files are treated as orphaned. The folder catalog exposes these states.
 - PDFs use embedded text first and automatically use local Tesseract OCR when no usable text layer exists.
 - Word uses Mammoth for DOCX extraction.
 - Images are indexed as first-class assets.

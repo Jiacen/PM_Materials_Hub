@@ -100,6 +100,7 @@ Current index file types:
 
 - `*.raw.json`: generated from PDF, Word, PPT, Excel, and text-like source documents. These contain metadata, source text chunks, candidate headings, MLFB candidates, and evidence chunk IDs.
 - `*.image.json`: generated from image source files. These contain image metadata, dimensions, format, inferred tags, and usage hints.
+- `_folder.catalog.json`: lightweight folder routing index. It records each source file, raw/refined index references, counts, topics, evidence IDs, generation method, preview type, and freshness states without duplicating full source content.
 
 LLM-refined extraction output is stored separately under:
 
@@ -113,12 +114,22 @@ Current frontend material cards combine:
 
 The intended rule is: raw JSON is the cheap local compression layer; LLM extraction should target the raw JSON, not the original PDF/Word/PPT.
 
+For PPT/PPTX, use three coordinated layers:
+
+1. `*.raw.json` for complete page-level machine-readable evidence.
+2. `*.meta.json` for validated reusable refined cards.
+3. `_folder.catalog.json` for lightweight routing before bounded page/card retrieval.
+
+The model should read the catalog first, then call the bounded context layer for relevant files, cards, or pages. Do not send every presentation and every slide by default.
+
 ## 6. Key Implemented APIs and Files
 
 Important implemented APIs:
 
 - `POST /api/index/local`: generate or refresh local JSON indexes for a selected folder.
 - `GET /api/materials/cards`: convert local and AI JSON data into frontend material cards.
+- `GET /api/materials/catalog`: read or rebuild the lightweight folder material catalog.
+- `POST /api/materials/context`: retrieve bounded source files, refined cards, and evidence pages for downstream model use.
 - `GET /api/assets/image`: safely serve local image assets and thumbnails, including TIFF conversion through `sharp`.
 - `POST /api/extract/batch`: run LLM extraction against local raw JSON.
 - `GET/POST /api/settings/prompts`: read/write per-folder prompt templates.
@@ -164,6 +175,23 @@ The UI currently has:
 - `POST /api/materials/manual-cards` runs the independent manual-card pipeline. It adapts card sections by material type, performs constrained LLM finalization with validation, and falls back to evidence-backed wording on timeout or model failure.
 - Folder `01` product-master MLFBs are the authoritative membership list for primary cards generated from folder `03` manuals. Manual-only MLFBs, appendix accessories, examples, and cross-references must not become primary cards unless they also exist in folder `01`.
 - The manual-card generator must discover master records and manual raw indexes dynamically. Do not hardcode one manual filename or one product list.
+- Folder `04` currently pilots dual-layer PPT materials: every source slide remains available as a draggable `slide` card with page preview, while LLM-refined theme cards remain a separate reusable layer. A refined card must never replace or hide its source slide.
+- When a folder contains multiple presentations, group cards by source PPT/PPTX. Each file group must be independently collapsible and contain separate collapsible sections for refined content and original pages.
+- Do not show a generic raw-document candidate card for PPT/PPTX files. The page cards are the complete source-preservation layer.
+- Slide previews must be true renders of the original PPT/PPTX page. On Windows, the platform exports every slide through installed Microsoft PowerPoint into cached PNG files under `data/slide-previews/`. Never substitute JSON-derived summaries or reconstructed layouts as if they were original-page previews.
+- If the native renderer is unavailable, show an explicit preview-unavailable state. Text extraction may still support search and refined cards, but it must not masquerade as the original slide image.
+- Runtime independence is a hard product requirement. Codex may develop and test the platform, but must never be part of production material generation. Local indexing, deterministic parsing, folder-specific card generation, LLM extraction/refinement, validation, persistence, preview generation, and frontend loading must all run through application code, scripts, APIs, and configured model services on a standalone machine.
+
+### PPT/PPTX User Operation Contract
+
+1. The PM puts one or more presentations in the material folder and clicks Sync.
+2. “生成 / 更新本地 JSON” must generate or refresh each presentation's `raw.json`, true page PNGs, and the folder catalog.
+3. The advanced LLM extraction action must read the `raw.json` files and generate one validated `meta.json` per presentation.
+4. Candidate model output must be written separately and validated before publication. Back up the current published index before replacing it.
+5. Reject giant single-card deck merges, missing/invalid evidence, and excessive MLFB aggregation.
+6. If supported, use an evidence-linked deterministic topic fallback after model validation failure and display its actual generation method in the UI.
+7. Source-file changes must mark local or refined indexes stale. Missing source files must be marked orphaned rather than silently treated as current.
+8. Multiple presentations remain independently grouped and collapsible in the frontend.
 
 The old top debug toolbar with `刷新卡片` and `AI Generate` has been hidden/removed from the user-facing UI because those controls were confusing placeholders.
 

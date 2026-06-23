@@ -80,6 +80,8 @@ export default function Home() {
   const [activeDropSlot, setActiveDropSlot] = useState<string | null>(null);
   const [detailCard, setDetailCard] = useState<any | null>(null);
   const [selectedDetailItems, setSelectedDetailItems] = useState<Record<string, boolean>>({});
+  const [slidePreviewCard, setSlidePreviewCard] = useState<any | null>(null);
+  const [failedSlidePreviewIds, setFailedSlidePreviewIds] = useState<Record<string, boolean>>({});
 
   const loadPrompts = async () => {
     try {
@@ -491,6 +493,7 @@ export default function Home() {
   };
 
   const cardTypeLabel = (type: string) => {
+    if (type === 'slide') return 'PPT PAGE';
     if (type === 'image') return 'IMAGE';
     if (type === 'product') return 'PRODUCT';
     if (type === 'module') return 'MODULE';
@@ -520,6 +523,7 @@ export default function Home() {
   };
 
   const cardTypeClass = (type: string) => {
+    if (type === 'slide') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
     if (type === 'image') return 'bg-cyan-50 text-cyan-700 border-cyan-100';
     if (type === 'product') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
     if (type === 'module') return 'bg-primary/10 text-primary border-primary/20';
@@ -581,7 +585,24 @@ export default function Home() {
   };
 
   const aiMaterialCards = materialCards.filter(card => card.stage === 'ai' || card.stage === 'master');
+  const sourceSlideCards = materialCards.filter(card => card.stage === 'source' && card.type === 'slide');
   const rawMaterialCards = materialCards.filter(card => card.stage === 'raw');
+  const presentationSourceFiles = [...new Set(sourceSlideCards.map(card => card.sourceFile))];
+  const presentationGroups = presentationSourceFiles.map((sourceFile, index) => ({
+    sourceFile,
+    index,
+    refinedCards: aiMaterialCards.filter(card => card.sourceFile === sourceFile),
+    slideCards: sourceSlideCards.filter(card => card.sourceFile === sourceFile),
+  }));
+  const standaloneAiCards = aiMaterialCards.filter(card => !presentationSourceFiles.includes(card.sourceFile));
+
+  const moveSlidePreview = (direction: number) => {
+    if (!slidePreviewCard) return;
+    const samePresentationSlides = sourceSlideCards.filter(card => card.sourceFile === slidePreviewCard.sourceFile);
+    const index = samePresentationSlides.findIndex(card => card.id === slidePreviewCard.id);
+    const next = samePresentationSlides[index + direction];
+    if (next) setSlidePreviewCard(next);
+  };
 
   const renderMaterialCard = (card: any) => (
     <div
@@ -596,9 +617,20 @@ export default function Home() {
       onDragEnd={() => setDraggingCardId(null)}
       className="group rounded-md border border-siemens-stone/60 bg-white p-3 shadow-sm hover:border-primary/40 hover:shadow-md transition-all cursor-grab active:cursor-grabbing"
     >
-      {card.type === 'image' && card.assetUrl && (
+      {(card.type === 'image' || card.type === 'slide') && card.assetUrl && (
         <div className="mb-3 aspect-[16/9] rounded border border-slate-100 bg-slate-50 overflow-hidden flex items-center justify-center">
-          <img src={card.assetUrl} alt={card.title} className="max-h-full max-w-full object-contain" />
+          {card.type === 'slide' && failedSlidePreviewIds[card.id] ? (
+            <div className="px-4 text-center text-xs text-amber-700">
+              无法生成真实PPT预览，请确认本机已安装 Microsoft PowerPoint。
+            </div>
+          ) : (
+            <img
+              src={card.assetUrl}
+              alt={card.title}
+              onError={() => card.type === 'slide' && setFailedSlidePreviewIds(prev => ({ ...prev, [card.id]: true }))}
+              className="max-h-full max-w-full object-contain"
+            />
+          )}
         </div>
       )}
       <div className="flex items-start gap-3">
@@ -619,10 +651,10 @@ export default function Home() {
           <div className="mt-3 flex items-center justify-between gap-2">
             <span className="text-[10px] text-slate-400 truncate">{card.sourceFile}</span>
             <button
-              onClick={() => card.sections?.length ? openCardDetail(card) : addCardToDeck(card)}
+              onClick={() => card.type === 'slide' ? setSlidePreviewCard(card) : card.sections?.length ? openCardDetail(card) : addCardToDeck(card)}
               className="px-1.5 py-0.5 rounded border border-primary/30 bg-primary/5 text-primary text-[10px] font-medium hover:bg-primary hover:text-white transition-colors"
             >
-              {card.sections?.length ? '选择内容' : 'Add'}
+              {card.type === 'slide' ? '预览' : card.sections?.length ? '选择内容' : 'Add'}
             </button>
           </div>
         </div>
@@ -716,7 +748,7 @@ export default function Home() {
                 移除
               </button>
             </div>
-            {item.type === 'image' && item.assetUrl ? (
+            {(item.type === 'image' || item.type === 'slide') && item.assetUrl ? (
               <div className="mt-3 min-h-0 flex-1 rounded-md bg-slate-50 overflow-hidden flex items-center justify-center">
                 <img src={`${item.assetUrl}&mode=full`} alt={item.title} className="max-h-full max-w-full object-contain" />
               </div>
@@ -840,6 +872,54 @@ export default function Home() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {slidePreviewCard && (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/70 p-6 backdrop-blur-sm">
+          <button aria-label="关闭页面预览" onClick={() => setSlidePreviewCard(null)} className="absolute inset-0 cursor-default" />
+          <div className="relative w-full max-w-6xl overflow-hidden rounded-xl border border-white/15 bg-slate-900 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 px-5 py-3 text-white">
+              <div className="min-w-0">
+                <p className="text-xs text-slate-400">{slidePreviewCard.sourceFile}</p>
+                <h2 className="truncate text-base font-semibold">{slidePreviewCard.subtitle} · {slidePreviewCard.title}</h2>
+              </div>
+              <button onClick={() => setSlidePreviewCard(null)} className="rounded border border-white/15 px-3 py-1.5 text-xs hover:bg-white/10">关闭</button>
+            </div>
+            <div className="relative bg-slate-800 p-5">
+              {failedSlidePreviewIds[slidePreviewCard.id] ? (
+                <div className="mx-auto flex aspect-[16/9] max-h-[68vh] w-full items-center justify-center bg-slate-900 text-sm text-amber-300">
+                  无法生成真实PPT页面预览。请安装Microsoft PowerPoint后重新生成本地JSON。
+                </div>
+              ) : (
+                <img
+                  src={slidePreviewCard.assetUrl}
+                  alt={slidePreviewCard.title}
+                  onError={() => setFailedSlidePreviewIds(prev => ({ ...prev, [slidePreviewCard.id]: true }))}
+                  className="mx-auto aspect-[16/9] max-h-[68vh] w-full object-contain"
+                />
+              )}
+              <button
+                onClick={() => moveSlidePreview(-1)}
+                disabled={slidePreviewCard.slideNumber <= 1}
+                className="absolute left-7 top-1/2 -translate-y-1/2 rounded-full bg-slate-950/70 px-4 py-3 text-xl text-white disabled:opacity-20"
+              >‹</button>
+              <button
+                onClick={() => moveSlidePreview(1)}
+                disabled={slidePreviewCard.slideNumber >= slidePreviewCard.slideCount}
+                className="absolute right-7 top-1/2 -translate-y-1/2 rounded-full bg-slate-950/70 px-4 py-3 text-xl text-white disabled:opacity-20"
+              >›</button>
+            </div>
+            <div className="flex items-center justify-between gap-4 border-t border-white/10 px-5 py-4">
+              <p className="line-clamp-2 text-xs text-slate-400">{slidePreviewCard.body}</p>
+              <button
+                onClick={() => {
+                  addCardToDeck(slidePreviewCard);
+                  setSlidePreviewCard(null);
+                }}
+                className="shrink-0 rounded-md bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover"
+              >整页加入工作区</button>
             </div>
           </div>
         </div>
@@ -1179,7 +1259,7 @@ export default function Home() {
                     {selectedFolder ? '优先使用主数据与精选主题卡，原始候选仅用于核对' : '先在左侧选择资料分类'}
                   </p>
                 </div>
-                <span className="text-xs text-slate-400">{aiMaterialCards.length} primary · {rawMaterialCards.length} raw</span>
+                <span className="text-xs text-slate-400">{aiMaterialCards.length} 精炼 · {sourceSlideCards.length} 原始页</span>
               </div>
 
               {!selectedFolder ? (
@@ -1193,14 +1273,46 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="max-h-[320px] overflow-y-auto pr-1 space-y-4">
-                  {aiMaterialCards.length > 0 && (
+                  {presentationGroups.map(group => (
+                    <details key={group.sourceFile} open={group.index === 0} className="rounded-lg border border-slate-200 bg-slate-50/50">
+                      <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700 hover:text-primary">
+                        <span className="ml-2">{group.sourceFile}</span>
+                        <span className="ml-2 text-[11px] font-normal text-slate-400">
+                          {group.refinedCards.length} 张精炼 · {group.slideCards.length} 张原始页
+                        </span>
+                      </summary>
+                      <div className="space-y-4 border-t border-slate-200 bg-white p-4">
+                        {group.refinedCards.length > 0 && (
+                          <details open>
+                            <summary className="cursor-pointer text-xs font-semibold text-primary">
+                              精炼内容 ({group.refinedCards.length})
+                            </summary>
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-2">
+                              {group.refinedCards.map(renderMaterialCard)}
+                            </div>
+                          </details>
+                        )}
+                        <details open>
+                          <summary className="cursor-pointer text-xs font-semibold text-indigo-700 hover:text-primary">
+                            原始 PPT 页面 ({group.slideCards.length})
+                          </summary>
+                          <p className="mt-1 text-[11px] text-slate-400">点击缩略图预览，确认后可整页加入工作区。</p>
+                          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-2">
+                            {group.slideCards.map(renderMaterialCard)}
+                          </div>
+                        </details>
+                      </div>
+                    </details>
+                  ))}
+
+                  {standaloneAiCards.length > 0 && (
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <h3 className="text-xs font-semibold text-primary">主数据与精选主题卡</h3>
                         <span className="text-[10px] text-slate-400">可直接拖入工作区</span>
                       </div>
                       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                        {aiMaterialCards.map(renderMaterialCard)}
+                        {standaloneAiCards.map(renderMaterialCard)}
                       </div>
                     </div>
                   )}
@@ -1365,7 +1477,7 @@ export default function Home() {
                         </button>
                       </div>
                       <div className="p-5">
-                        {item.type === 'image' && item.assetUrl ? (
+                        {(item.type === 'image' || item.type === 'slide') && item.assetUrl ? (
                           <div className="grid grid-cols-[minmax(220px,360px)_1fr] gap-5 items-center">
                             <div className="aspect-[4/3] rounded-md border border-slate-100 bg-slate-50 overflow-hidden flex items-center justify-center">
                               <img src={`${item.assetUrl}&mode=full`} alt={item.title} className="max-h-full max-w-full object-contain" />

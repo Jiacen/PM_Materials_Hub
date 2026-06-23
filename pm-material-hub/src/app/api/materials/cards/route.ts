@@ -6,12 +6,12 @@ import { readManualCards } from '@/lib/manualCardGenerator';
 
 type MaterialCard = {
   id: string;
-  type: 'document' | 'mlfb' | 'evidence' | 'product' | 'module' | 'accessory' | 'certificate'
+  type: 'document' | 'slide' | 'mlfb' | 'evidence' | 'product' | 'module' | 'accessory' | 'certificate'
     | 'product_master' | 'product_overview' | 'technical_feature' | 'technical_spec' | 'limitation'
     | 'value_proposition' | 'application' | 'comparison' | 'case_study' | 'customer_pain'
     | 'solution' | 'business_result' | 'sales_message' | 'objection_handling' | 'competitive_claim'
     | 'release_notice' | 'faq' | 'troubleshooting' | 'image';
-  stage: 'ai' | 'master' | 'raw';
+  stage: 'ai' | 'master' | 'source' | 'raw';
   title: string;
   subtitle: string;
   body: string;
@@ -22,6 +22,8 @@ type MaterialCard = {
   width?: number | null;
   height?: number | null;
   tags?: string[];
+  slideNumber?: number;
+  slideCount?: number;
   sections?: Array<{
     id: string;
     label: string;
@@ -29,6 +31,39 @@ type MaterialCard = {
     items: string[];
   }>;
 };
+
+function cardsFromPresentationSlides(folderName: string, sourceFile: string, raw: any): MaterialCard[] {
+  if (!folderName.startsWith('04_') || !Array.isArray(raw?.slides)) return [];
+
+  const slideCount = raw.slides.length;
+  return raw.slides.map((slide: any, index: number) => {
+    const slideNumber = Number(slide?.slideNumber) || index + 1;
+    const title = String(slide?.title || `第 ${slideNumber} 页`).trim();
+    const textItems = Array.isArray(slide?.textItems) ? slide.textItems : [];
+    const body = textItems
+      .map((item: any) => String(item?.text || '').trim())
+      .filter((text: string) => text && text !== title)
+      .slice(0, 4)
+      .join(' · ');
+    const assetUrl = `/api/assets/slide-preview?folderName=${encodeURIComponent(folderName)}&sourceFile=${encodeURIComponent(sourceFile)}&slideNumber=${slideNumber}&slideCount=${slideCount}`;
+
+    return {
+      id: `${safeId(sourceFile)}-slide-${String(slideNumber).padStart(4, '0')}`,
+      type: 'slide',
+      stage: 'source',
+      title,
+      subtitle: `第 ${slideNumber} / ${slideCount} 页`,
+      body: compactText(body || String(slide?.text || '') || '原始 PPT 页面'),
+      sourceFile,
+      folderName,
+      chunkIds: [slide?.id || `slide_${String(slideNumber).padStart(4, '0')}`],
+      assetUrl,
+      slideNumber,
+      slideCount,
+      tags: ['原始PPT页'],
+    };
+  });
+}
 
 function safeId(value: string) {
   return value
@@ -58,6 +93,7 @@ function findEvidenceSnippet(chunks: any[], value: string) {
 
 function cardsFromAiJson(folderName: string, sourceFile: string, ai: any): MaterialCard[] {
   const products = Array.isArray(ai?.products) ? ai.products : [];
+  const finalizedBy = String(ai?._index?.finalizedBy || 'llm');
   return products.map((product: any, index: number) => {
     const supportedTypes = new Set([
       'product', 'module', 'accessory', 'certificate', 'value_proposition',
@@ -131,7 +167,9 @@ function cardsFromAiJson(folderName: string, sourceFile: string, ai: any): Mater
       title: product.product_name || mlfb || '精提取物料',
       subtitle: itemType === 'certificate'
         ? String(product.certificate_number || '认证证书')
-        : mlfb || (itemType === 'accessory' ? '附件/备件' : '大模型精提取'),
+        : mlfb || (itemType === 'accessory'
+          ? '附件/备件'
+          : finalizedBy === 'deterministic-fallback' ? '规则兜底提取' : '大模型精提取'),
       body: compactText(certificateText || summaryText || featureText || specText || '已由大模型基于 raw JSON 规整合并。'),
       sourceFile,
       folderName,
@@ -329,7 +367,9 @@ export async function GET(req: Request) {
           return [cardFromImageJson(folderName, raw)];
         }
         const sourceFile = raw?.source?.fileName || file.replace(/\.raw\.json$/, '');
-        const rawCards = cardsFromRawJson(folderName, file, raw);
+        const isPresentation = Array.isArray(raw?.slides);
+        const rawCards = isPresentation ? [] : cardsFromRawJson(folderName, file, raw);
+        const slideCards = cardsFromPresentationSlides(folderName, sourceFile, raw);
         const generatedManualCards = readManualCards(folderName, sourceFile);
         if (generatedManualCards?.length) {
           return [...generatedManualCards, ...rawCards];
@@ -340,7 +380,7 @@ export async function GET(req: Request) {
         if (pilotCard) {
           return [pilotCard, ...rawCards];
         }
-        return aiCards.length > 0 ? [...aiCards, ...rawCards] : rawCards;
+        return aiCards.length > 0 ? [...aiCards, ...slideCards, ...rawCards] : [...slideCards, ...rawCards];
       });
 
     return NextResponse.json({ success: true, cards });

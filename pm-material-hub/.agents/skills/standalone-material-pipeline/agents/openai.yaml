@@ -1,0 +1,4 @@
+interface:
+  display_name: "Standalone Material Pipeline"
+  short_description: "Keep all material generation independent from Codex"
+  default_prompt: "Implement and verify standalone local indexing and validated LLM card generation for PM Material Hub."
