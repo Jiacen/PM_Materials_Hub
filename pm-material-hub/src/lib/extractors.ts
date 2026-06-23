@@ -37,9 +37,9 @@ function cleanPresentationText(value: unknown): string {
 
 function isPresentationChrome(text: string): boolean {
   return /^Page\s+\d+$/i.test(text)
-    || /^Unrestricted\s*\|/i.test(text)
+    || /^(Unrestricted|Restricted)\s*\|/i.test(text)
     || /^©\s*Siemens/i.test(text)
-    || /^Notizzettel\s+\d+$/i.test(text);
+    || /^(Notizzettel|Notes)\s+\d+$/i.test(text);
 }
 
 export async function extractPresentationStructure(filePath: string): Promise<any> {

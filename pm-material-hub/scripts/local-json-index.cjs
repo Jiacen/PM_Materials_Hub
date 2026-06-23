@@ -104,9 +104,9 @@ function cleanPresentationText(value) {
 
 function isPresentationChrome(text) {
   return /^Page\s+\d+$/i.test(text)
-    || /^Unrestricted\s*\|/i.test(text)
+    || /^(Unrestricted|Restricted)\s*\|/i.test(text)
     || /^©\s*Siemens/i.test(text)
-    || /^Notizzettel\s+\d+$/i.test(text);
+    || /^(Notizzettel|Notes)\s+\d+$/i.test(text);
 }
 
 async function extractPresentationStructure(filePath) {

@@ -14,6 +14,16 @@ const STANDARD_FOLDERS = [
   "10_FAQ_常见问题集"
 ];
 
+const PAGE_LAYOUTS = [
+  { id: 'single', label: '单卡', slots: ['main'] },
+  { id: 'two-columns', label: '左右均分', slots: ['left', 'right'] },
+  { id: 'left-main-right-stack', label: '左大右双', slots: ['main', 'right-top', 'right-bottom'] },
+  { id: 'two-rows', label: '上下均分', slots: ['top', 'bottom'] },
+  { id: 'four-grid', label: '四宫格', slots: ['top-left', 'top-right', 'bottom-left', 'bottom-right'] },
+] as const;
+
+type PageLayoutId = typeof PAGE_LAYOUTS[number]['id'];
+
 export default function Home() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [workspaceInfo, setWorkspaceInfo] = useState<any>(null);
@@ -61,11 +71,15 @@ export default function Home() {
   const [localIndexResult, setLocalIndexResult] = useState<any>(null);
   const [materialCards, setMaterialCards] = useState<any[]>([]);
   const [deckPages, setDeckPages] = useState<any[]>([
-    { id: 'page-1', title: 'Page 1', items: [] }
+    { id: 'page-1', title: 'Page 1', layout: 'single', items: [] }
   ]);
   const [activePageId, setActivePageId] = useState('page-1');
   const [isLoadingCards, setIsLoadingCards] = useState(false);
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
+  const [draggingDeckItemId, setDraggingDeckItemId] = useState<string | null>(null);
+  const [activeDropSlot, setActiveDropSlot] = useState<string | null>(null);
+  const [detailCard, setDetailCard] = useState<any | null>(null);
+  const [selectedDetailItems, setSelectedDetailItems] = useState<Record<string, boolean>>({});
 
   const loadPrompts = async () => {
     try {
@@ -322,9 +336,15 @@ export default function Home() {
     return acc;
   }, {}) || {};
 
-  const addCardToDeck = (card: any) => {
+  const getLayout = (layoutId: PageLayoutId | string) =>
+    PAGE_LAYOUTS.find(layout => layout.id === layoutId) || PAGE_LAYOUTS[0];
+
+  const addCardToDeck = (card: any, requestedSlotId?: string) => {
     setDeckPages(prev => prev.map(page => {
       if (page.id !== activePageId) return page;
+      const layout = getLayout(page.layout);
+      const occupiedSlots = new Set(page.items.map((item: any) => item.slotId).filter(Boolean));
+      const slotId = requestedSlotId || layout.slots.find(slot => !occupiedSlots.has(slot)) || null;
       return {
         ...page,
         items: [
@@ -332,25 +352,80 @@ export default function Home() {
           {
             ...card,
             deckId: `${card.id}-${Date.now()}-${page.items.length}`,
+            slotId,
           }
         ]
       };
     }));
   };
 
-  const handleDropToDeck = (event: React.DragEvent<HTMLDivElement>) => {
+  const handleDropToSlot = (event: React.DragEvent<HTMLDivElement>, slotId: string) => {
     event.preventDefault();
     event.stopPropagation();
+    const deckItemId = event.dataTransfer.getData('application/x-deck-item') || draggingDeckItemId;
+    if (deckItemId) {
+      setDeckPages(prev => prev.map(page => {
+        if (page.id !== activePageId) return page;
+        const movingItem = page.items.find((item: any) => item.deckId === deckItemId);
+        const targetItem = page.items.find((item: any) => item.slotId === slotId);
+        if (!movingItem) return page;
+        return {
+          ...page,
+          items: page.items.map((item: any) => {
+            if (item.deckId === movingItem.deckId) return { ...item, slotId };
+            if (targetItem && item.deckId === targetItem.deckId) return { ...item, slotId: movingItem.slotId || null };
+            return item;
+          })
+        };
+      }));
+      setDraggingDeckItemId(null);
+      setActiveDropSlot(null);
+      return;
+    }
+
     const cardId = event.dataTransfer.getData('application/x-material-card') || event.dataTransfer.getData('text/plain') || draggingCardId;
     const card = materialCards.find(item => item.id === cardId);
-    if (card) addCardToDeck(card);
+    if (card) {
+      setDeckPages(prev => prev.map(page => {
+        if (page.id !== activePageId) return page;
+        const existingItem = page.items.find((item: any) => item.slotId === slotId);
+        const nextItems = existingItem
+          ? page.items.map((item: any) => item.deckId === existingItem.deckId ? { ...item, slotId: null } : item)
+          : page.items;
+        return {
+          ...page,
+          items: [
+            ...nextItems,
+            {
+              ...card,
+              deckId: `${card.id}-${Date.now()}-${page.items.length}`,
+              slotId,
+            }
+          ]
+        };
+      }));
+    }
     setDraggingCardId(null);
+    setActiveDropSlot(null);
+  };
+
+  const handleDragOverSlot = (event: React.DragEvent<HTMLDivElement>, slotId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = draggingDeckItemId ? 'move' : 'copy';
+    setActiveDropSlot(slotId);
+  };
+
+  const handleDropToDeck = (event: React.DragEvent<HTMLDivElement>) => {
+    const occupiedSlots = new Set(activePage?.items?.map((item: any) => item.slotId).filter(Boolean) || []);
+    const targetSlot = getLayout(activePage?.layout || 'single').slots.find(slot => !occupiedSlots.has(slot))
+      || getLayout(activePage?.layout || 'single').slots[0];
+    handleDropToSlot(event, targetSlot);
   };
 
   const handleDragOverDeck = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    event.dataTransfer.dropEffect = 'copy';
   };
 
   const handleFolderClick = (folderName: string) => {
@@ -363,9 +438,24 @@ export default function Home() {
 
   const addDeckPage = () => {
     const nextNumber = deckPages.length + 1;
-    const page = { id: `page-${Date.now()}`, title: `Page ${nextNumber}`, items: [] };
+    const page = { id: `page-${Date.now()}`, title: `Page ${nextNumber}`, layout: 'single', items: [] };
     setDeckPages(prev => [...prev, page]);
     setActivePageId(page.id);
+  };
+
+  const changeActivePageLayout = (layout: PageLayoutId) => {
+    const slots = getLayout(layout).slots;
+    setDeckPages(prev => prev.map(page => {
+      if (page.id !== activePageId) return page;
+      return {
+        ...page,
+        layout,
+        items: page.items.map((item: any, index: number) => ({
+          ...item,
+          slotId: index < slots.length ? slots[index] : null,
+        })),
+      };
+    }));
   };
 
   const deleteDeckPage = (pageId: string) => {
@@ -458,6 +548,38 @@ export default function Home() {
     return 'bg-amber-50 text-amber-700 border-amber-100';
   };
 
+  const openCardDetail = (card: any) => {
+    const firstItems = (card.sections || []).flatMap((section: any) =>
+      section.items.map((_: string, index: number) => `${section.id}:${index}`)
+    );
+    setSelectedDetailItems(Object.fromEntries(firstItems.slice(0, 4).map((key: string) => [key, true])));
+    setDetailCard(card);
+  };
+
+  const addSelectedDetailToDeck = () => {
+    if (!detailCard) return;
+    const selectedSections = (detailCard.sections || []).map((section: any) => ({
+      ...section,
+      items: section.items.filter((_: string, index: number) => selectedDetailItems[`${section.id}:${index}`]),
+    })).filter((section: any) => section.items.length > 0);
+    if (selectedSections.length === 0) return;
+
+    const selectedCount = selectedSections.reduce((sum: number, section: any) => sum + section.items.length, 0);
+    const dominantType = selectedSections.length === 1 ? selectedSections[0].type : 'technical_feature';
+    addCardToDeck({
+      ...detailCard,
+      id: `${detailCard.id}-selection-${Date.now()}`,
+      type: dominantType,
+      title: `${detailCard.title} · 精选内容`,
+      subtitle: `${selectedCount} 条已选信息`,
+      body: selectedSections
+        .map((section: any) => `${section.label}：${section.items.join('；')}`)
+        .join('\n'),
+      selectedSections,
+    });
+    setDetailCard(null);
+  };
+
   const aiMaterialCards = materialCards.filter(card => card.stage === 'ai' || card.stage === 'master');
   const rawMaterialCards = materialCards.filter(card => card.stage === 'raw');
 
@@ -497,10 +619,10 @@ export default function Home() {
           <div className="mt-3 flex items-center justify-between gap-2">
             <span className="text-[10px] text-slate-400 truncate">{card.sourceFile}</span>
             <button
-              onClick={() => addCardToDeck(card)}
+              onClick={() => card.sections?.length ? openCardDetail(card) : addCardToDeck(card)}
               className="px-1.5 py-0.5 rounded border border-primary/30 bg-primary/5 text-primary text-[10px] font-medium hover:bg-primary hover:text-white transition-colors"
             >
-              Add
+              {card.sections?.length ? '选择内容' : 'Add'}
             </button>
           </div>
         </div>
@@ -508,8 +630,220 @@ export default function Home() {
     </div>
   );
 
+  const activeLayout = getLayout(activePage?.layout || 'single');
+  const unplacedItems = activePage?.items?.filter((item: any) => !item.slotId) || [];
+
+  const layoutGridClass = (layoutId: string) => {
+    if (layoutId === 'two-columns') return 'grid-cols-2 grid-rows-1';
+    if (layoutId === 'left-main-right-stack') return 'grid-cols-2 grid-rows-2';
+    if (layoutId === 'two-rows') return 'grid-cols-1 grid-rows-2';
+    if (layoutId === 'four-grid') return 'grid-cols-2 grid-rows-2';
+    return 'grid-cols-1 grid-rows-1';
+  };
+
+  const slotGridClass = (layoutId: string, slotId: string) => {
+    if (layoutId === 'left-main-right-stack' && slotId === 'main') return 'row-span-2';
+    return '';
+  };
+
+  const slotLabel = (slotId: string) => {
+    const labels: Record<string, string> = {
+      main: '主内容',
+      left: '左侧',
+      right: '右侧',
+      'right-top': '右上',
+      'right-bottom': '右下',
+      top: '上方',
+      bottom: '下方',
+      'top-left': '左上',
+      'top-right': '右上',
+      'bottom-left': '左下',
+      'bottom-right': '右下',
+    };
+    return labels[slotId] || slotId;
+  };
+
+  const renderWorkspaceSlot = (slotId: string) => {
+    const item = activePage?.items?.find((candidate: any) => candidate.slotId === slotId);
+    const isDropTarget = activeDropSlot === slotId;
+
+    return (
+      <div
+        key={slotId}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          setActiveDropSlot(slotId);
+        }}
+        onDragLeave={() => setActiveDropSlot(current => current === slotId ? null : current)}
+        onDragOver={(event) => handleDragOverSlot(event, slotId)}
+        onDrop={(event) => handleDropToSlot(event, slotId)}
+        className={`${slotGridClass(activeLayout.id, slotId)} min-h-0 rounded-lg border-2 transition-colors overflow-hidden ${
+          isDropTarget
+            ? 'border-primary bg-primary/10'
+            : item
+              ? 'border-slate-200 bg-white shadow-sm'
+              : 'border-dashed border-slate-200 bg-slate-50/70'
+        }`}
+      >
+        {item ? (
+          <div
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = 'move';
+              event.dataTransfer.setData('application/x-deck-item', item.deckId);
+              setDraggingDeckItemId(item.deckId);
+            }}
+            onDragEnd={() => {
+              setDraggingDeckItemId(null);
+              setActiveDropSlot(null);
+            }}
+            className="h-full p-4 flex flex-col cursor-grab active:cursor-grabbing"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-semibold text-primary uppercase tracking-wide">{slotLabel(slotId)}</span>
+                  <span className={`text-[9px] font-bold border rounded px-1.5 py-0.5 ${cardTypeClass(item.type)}`}>
+                    {cardTypeLabel(item.type)}
+                  </span>
+                </div>
+                <h3 className="mt-2 text-sm font-semibold text-slate-800 line-clamp-2">{item.title}</h3>
+              </div>
+              <button
+                onClick={() => removeDeckItem(item.deckId)}
+                className="shrink-0 text-xs text-slate-400 hover:text-red-500"
+              >
+                移除
+              </button>
+            </div>
+            {item.type === 'image' && item.assetUrl ? (
+              <div className="mt-3 min-h-0 flex-1 rounded-md bg-slate-50 overflow-hidden flex items-center justify-center">
+                <img src={`${item.assetUrl}&mode=full`} alt={item.title} className="max-h-full max-w-full object-contain" />
+              </div>
+            ) : (
+              <p className="mt-3 text-xs leading-relaxed text-slate-500 line-clamp-5">{item.body}</p>
+            )}
+          </div>
+        ) : (
+          <div className="h-full min-h-[120px] flex flex-col items-center justify-center text-center p-4">
+            <span className="text-xs font-semibold text-slate-500">{slotLabel(slotId)}</span>
+            <span className="mt-1 text-[11px] text-slate-400">拖入物料卡片</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
+      {detailCard && (
+        <div className="fixed inset-0 z-[70] flex justify-end bg-slate-900/35 backdrop-blur-sm">
+          <button
+            aria-label="关闭内容选择"
+            onClick={() => setDetailCard(null)}
+            className="absolute inset-0 cursor-default"
+          />
+          <div className="relative flex h-full w-full max-w-[620px] flex-col border-l border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-6 py-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] font-bold border rounded px-1.5 py-0.5 ${cardTypeClass(detailCard.type)}`}>
+                      {cardTypeLabel(detailCard.type)}
+                    </span>
+                    <span className="truncate text-xs text-slate-400">{detailCard.subtitle}</span>
+                  </div>
+                  <h2 className="mt-2 text-xl font-semibold text-slate-800">{detailCard.title}</h2>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                    勾选真正需要进入当前页面的信息。加入后会生成一张独立的精选内容卡。
+                  </p>
+                </div>
+                <button
+                  onClick={() => setDetailCard(null)}
+                  className="rounded-md border border-slate-200 px-2.5 py-1.5 text-xs text-slate-500 hover:bg-slate-50"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 space-y-4 overflow-y-auto p-6">
+              {(detailCard.sections || []).map((section: any) => {
+                const sectionKeys = section.items.map((_: string, index: number) => `${section.id}:${index}`);
+                const allSelected = sectionKeys.every((key: string) => selectedDetailItems[key]);
+                return (
+                  <section key={section.id} className="rounded-lg border border-slate-200 bg-slate-50/50">
+                    <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[9px] font-bold border rounded px-1.5 py-0.5 ${cardTypeClass(section.type)}`}>
+                          {cardTypeLabel(section.type)}
+                        </span>
+                        <h3 className="text-sm font-semibold text-slate-700">{section.label}</h3>
+                        <span className="text-xs text-slate-400">{section.items.length}</span>
+                      </div>
+                      <button
+                        onClick={() => setSelectedDetailItems(prev => {
+                          const next = { ...prev };
+                          sectionKeys.forEach((key: string) => { next[key] = !allSelected; });
+                          return next;
+                        })}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        {allSelected ? '取消本组' : '选择本组'}
+                      </button>
+                    </div>
+                    <div className="divide-y divide-slate-100 bg-white">
+                      {section.items.map((item: string, index: number) => {
+                        const itemKey = `${section.id}:${index}`;
+                        return (
+                          <label key={itemKey} className="flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-primary/5">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(selectedDetailItems[itemKey])}
+                              onChange={(event) => setSelectedDetailItems(prev => ({
+                                ...prev,
+                                [itemKey]: event.target.checked,
+                              }))}
+                              className="mt-0.5 h-4 w-4 accent-primary"
+                            />
+                            <span className="text-sm leading-relaxed text-slate-600">{item}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+
+            <div className="border-t border-slate-200 bg-white px-6 py-4">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-xs text-slate-400">
+                  已选择 {Object.values(selectedDetailItems).filter(Boolean).length} 条信息
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      addCardToDeck(detailCard);
+                      setDetailCard(null);
+                    }}
+                    className="rounded-md border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    整卡加入
+                  </button>
+                  <button
+                    onClick={addSelectedDetailToDeck}
+                    disabled={!Object.values(selectedDetailItems).some(Boolean)}
+                    className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    将所选内容加入当前页面
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Native-like Folder Picker Modal */}
       {showPicker && (
@@ -886,9 +1220,6 @@ export default function Home() {
             </div>
 
             <div
-              onDragEnter={(event) => event.preventDefault()}
-              onDragOver={handleDragOverDeck}
-              onDrop={handleDropToDeck}
               className="order-2 min-h-[420px] border-2 border-dashed border-siemens-stone rounded-xl bg-white/40 backdrop-blur p-5"
             >
               <div className="flex items-center justify-between mb-4">
@@ -934,7 +1265,70 @@ export default function Home() {
                 ))}
               </div>
 
-              {activePage.items.length === 0 ? (
+              <div className="mb-4 rounded-lg border border-slate-200 bg-white/80 p-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-700">页面布局</p>
+                    <p className="mt-0.5 text-[11px] text-slate-400">布局表达内容关系，最终 HTML 可按内容量动态调整比例</p>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {PAGE_LAYOUTS.map(layout => (
+                      <button
+                        key={layout.id}
+                        onClick={() => changeActivePageLayout(layout.id)}
+                        className={`rounded-md border px-3 py-1.5 text-xs transition-colors ${
+                          activeLayout.id === layout.id
+                            ? 'border-primary bg-primary text-white shadow-sm'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-primary/40 hover:text-primary'
+                        }`}
+                      >
+                        {layout.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="aspect-[16/9] min-h-[360px] rounded-xl border border-slate-200 bg-slate-100 p-3 shadow-inner">
+                <div className={`grid h-full gap-3 ${layoutGridClass(activeLayout.id)}`}>
+                  {activeLayout.slots.map(renderWorkspaceSlot)}
+                </div>
+              </div>
+
+              {unplacedItems.length > 0 && (
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-amber-800">未放置素材</p>
+                      <p className="mt-0.5 text-[11px] text-amber-700/70">当前布局槽位不足或卡片被替换。拖动卡片到任意槽位即可重新放置。</p>
+                    </div>
+                    <span className="text-xs font-semibold text-amber-700">{unplacedItems.length}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {unplacedItems.map((item: any) => (
+                      <div
+                        key={item.deckId}
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('application/x-deck-item', item.deckId);
+                          setDraggingDeckItemId(item.deckId);
+                        }}
+                        onDragEnd={() => setDraggingDeckItemId(null)}
+                        className="flex max-w-[260px] cursor-grab items-center gap-2 rounded-md border border-amber-200 bg-white px-3 py-2 text-xs text-slate-600 shadow-sm active:cursor-grabbing"
+                      >
+                        <span className={`text-[9px] font-bold border rounded px-1.5 py-0.5 ${cardTypeClass(item.type)}`}>
+                          {cardTypeLabel(item.type)}
+                        </span>
+                        <span className="truncate">{item.title}</span>
+                        <button onClick={() => removeDeckItem(item.deckId)} className="ml-auto text-slate-400 hover:text-red-500">移除</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {false && (activePage.items.length === 0 ? (
                 <div className="h-[300px] flex flex-col items-center justify-center text-slate-400">
                   <span className="text-4xl mb-4">□</span>
                   <p className="text-lg font-medium">拖入物料卡片开始组装 {activePage.title}</p>
@@ -1006,7 +1400,7 @@ export default function Home() {
                     Drop here to add another block to {activePage.title}
                   </div>
                 </div>
-              )}
+              ))}
             </div>
           </div>
         </section>
