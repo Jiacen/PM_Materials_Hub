@@ -1,5 +1,5 @@
-"use client";
-import React, { useState, useEffect } from "react";
+﻿"use client";
+import React, { useState, useEffect, useRef } from "react";
 
 const STANDARD_FOLDERS = [
   "01_产品物料表格",
@@ -11,8 +11,31 @@ const STANDARD_FOLDERS = [
   "07_文本资料",
   "08_产品图片素材",
   "09_认证证书",
-  "10_FAQ_常见问题集"
+  "10_FAQ_常见问题集",
 ];
+
+const FOLDER_DISPLAY_NAMES: Record<string, string> = {
+  "01_产品物料表格": "01_产品物料表格",
+  "02_Catalogue_产品样本": "02_Catalogue_产品样本",
+  "03_Manual_产品技术手册": "03_Manual_产品技术手册",
+  "05_Sales_Reference_成功案例": "05_Sales_Reference_成功案例",
+  "07_文本资料": "07_文本资料",
+  "08_产品图片素材": "08_产品图片素材",
+  "09_认证证书": "09_认证证书",
+  "10_FAQ_常见问题集": "10_FAQ_常见问题集",
+  "01_浜у搧鐗╂枡琛ㄦ牸": "01_产品物料表格",
+  "02_Catalogue_浜у搧鏍锋湰": "02_Catalogue_产品样本",
+  "03_Manual_浜у搧鎶€鏈墜鍐?": "03_Manual_产品技术手册",
+  "04_Slides_Technical&Sales": "04_Slides_Technical&Sales",
+  "05_Sales_Reference_鎴愬姛妗堜緥": "05_Sales_Reference_成功案例",
+  "06_Sales_Fighting_Guide": "06_Sales_Fighting_Guide",
+  "07_鏂囨湰璧勬枡": "07_文本资料",
+  "08_浜у搧鍥剧墖绱犳潗": "08_产品图片素材",
+  "09_璁よ瘉璇佷功": "09_认证证书",
+  "10_FAQ_甯歌闂闆?": "10_FAQ_常见问题集",
+};
+
+const displayFolderName = (folderName: string) => FOLDER_DISPLAY_NAMES[folderName] || folderName;
 
 const PAGE_LAYOUTS = [
   { id: 'single', label: '单卡', slots: ['main'] },
@@ -81,6 +104,11 @@ export default function Home() {
   const [detailCard, setDetailCard] = useState<any | null>(null);
   const [selectedDetailItems, setSelectedDetailItems] = useState<Record<string, boolean>>({});
   const [slidePreviewCard, setSlidePreviewCard] = useState<any | null>(null);
+  const [slideSelection, setSlideSelection] = useState<any | null>(null);
+  const [isSelectingSlideRegion, setIsSelectingSlideRegion] = useState(false);
+  const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
+  const [isSavingSlideSelection, setIsSavingSlideSelection] = useState(false);
+  const slideSelectionRef = useRef<HTMLDivElement | null>(null);
   const [failedSlidePreviewIds, setFailedSlidePreviewIds] = useState<Record<string, boolean>>({});
   const [isGeneratingHtml, setIsGeneratingHtml] = useState(false);
   const [generationInstruction, setGenerationInstruction] = useState("");
@@ -143,7 +171,7 @@ export default function Home() {
       });
       if (res.ok) {
         setFolderPrompts(prev => ({ ...prev, [selectedFolder]: currentPrompt }));
-        alert("保存成功！");
+        alert("保存成功。");
       }
     } catch (err) {
       alert("保存失败");
@@ -155,7 +183,7 @@ export default function Home() {
   const handleExtractBatch = async () => {
     if (!selectedFolder) return;
     if (!currentPrompt) {
-      alert("请先填写并保存大模型提取规则！");
+      alert("请先填写并保存大模型提取规则。");
       return;
     }
     
@@ -170,12 +198,12 @@ export default function Home() {
       const data = await res.json();
       setExtractionResult(data);
       if (data.success) {
-        alert("批量提取完成！请查看下方状态栏的详细结果。");
+        alert("批量提取完成，请查看状态栏的详细结果。");
       } else {
         alert("提取过程中出现错误：" + data.error);
       }
     } catch (err) {
-      alert("提取失败，网络或服务器错误");
+      alert("提取失败，网络或服务器错误。");
     } finally {
       setIsExtracting(false);
     }
@@ -201,7 +229,7 @@ export default function Home() {
         alert("本地 JSON 生成失败：" + data.error);
       }
     } catch (err) {
-      alert("本地 JSON 生成失败，服务器未响应");
+      alert("本地 JSON 生成失败，服务器未响应。");
     } finally {
       setIsIndexingLocal(false);
     }
@@ -232,7 +260,7 @@ export default function Home() {
   };
 
   const handleCreateFolder = async () => {
-    const folderName = window.prompt("请输入新文件夹的名称：", "PM_Materials");
+    const folderName = window.prompt("请输入新文件夹名称：", "PM_Materials");
     if (!folderName) return;
     
     try {
@@ -247,11 +275,11 @@ export default function Home() {
         // reload current directory to show new folder
         loadPickerPath(pickerPath);
       } else {
-        alert("创建失败: " + data.error);
+        alert("创建失败：" + data.error);
         setPickerLoading(false);
       }
     } catch (err) {
-      alert("创建出错");
+      alert("鍒涘缓鍑洪敊");
       setPickerLoading(false);
     }
   };
@@ -381,7 +409,7 @@ export default function Home() {
     }
   };
 
-  // Group files by their parent folder (e.g. 01_产品物料表格)
+  // Group files by their parent folder (e.g. 01_浜у搧鐗╂枡琛ㄦ牸)
   const getGenerationSignature = (pages = deckPages, instruction = generationInstruction) => JSON.stringify({
     instruction,
     pages: pages
@@ -666,6 +694,7 @@ export default function Home() {
 
   const cardTypeLabel = (type: string) => {
     if (type === 'slide') return 'PPT PAGE';
+    if (type === 'ppt_selection') return 'PPT PICK';
     if (type === 'image') return 'IMAGE';
     if (type === 'product') return 'PRODUCT';
     if (type === 'module') return 'MODULE';
@@ -696,6 +725,7 @@ export default function Home() {
 
   const cardTypeClass = (type: string) => {
     if (type === 'slide') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+    if (type === 'ppt_selection') return 'bg-violet-50 text-violet-700 border-violet-200';
     if (type === 'image') return 'bg-cyan-50 text-cyan-700 border-cyan-100';
     if (type === 'product') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
     if (type === 'module') return 'bg-primary/10 text-primary border-primary/20';
@@ -756,6 +786,7 @@ export default function Home() {
     setDetailCard(null);
   };
 
+  const favoriteMaterialCards = materialCards.filter(card => card.stage === 'favorite' || card.type === 'ppt_selection');
   const aiMaterialCards = materialCards.filter(card => card.stage === 'ai' || card.stage === 'master');
   const sourceSlideCards = materialCards.filter(card => card.stage === 'source' && card.type === 'slide');
   const rawMaterialCards = materialCards.filter(card => card.stage === 'raw');
@@ -763,6 +794,7 @@ export default function Home() {
   const presentationGroups = presentationSourceFiles.map((sourceFile, index) => ({
     sourceFile,
     index,
+    favoriteCards: favoriteMaterialCards.filter(card => card.sourceFile === sourceFile),
     refinedCards: aiMaterialCards.filter(card => card.sourceFile === sourceFile),
     slideCards: sourceSlideCards.filter(card => card.sourceFile === sourceFile),
   }));
@@ -774,6 +806,78 @@ export default function Home() {
     const index = samePresentationSlides.findIndex(card => card.id === slidePreviewCard.id);
     const next = samePresentationSlides[index + direction];
     if (next) setSlidePreviewCard(next);
+  };
+
+  useEffect(() => {
+    setSlideSelection(null);
+    setSelectionStart(null);
+    setIsSelectingSlideRegion(false);
+  }, [slidePreviewCard?.id]);
+
+  const pointInSelectionLayer = (event: React.MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+    };
+  };
+
+  const startSlideSelection = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!slidePreviewCard || failedSlidePreviewIds[slidePreviewCard.id]) return;
+    event.preventDefault();
+    const point = pointInSelectionLayer(event);
+    setSelectionStart(point);
+    setSlideSelection({ x: point.x, y: point.y, width: 0, height: 0 });
+    setIsSelectingSlideRegion(true);
+  };
+
+  const updateSlideSelection = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!isSelectingSlideRegion || !selectionStart) return;
+    const point = pointInSelectionLayer(event);
+    setSlideSelection({
+      x: Math.min(selectionStart.x, point.x),
+      y: Math.min(selectionStart.y, point.y),
+      width: Math.abs(point.x - selectionStart.x),
+      height: Math.abs(point.y - selectionStart.y),
+    });
+  };
+
+  const finishSlideSelection = () => {
+    setIsSelectingSlideRegion(false);
+    setSelectionStart(null);
+    setSlideSelection((current: any) => {
+      if (!current || current.width < 0.015 || current.height < 0.015) return null;
+      return current;
+    });
+  };
+
+  const favoriteSlideSelection = async () => {
+    if (!slidePreviewCard || !slideSelection) return;
+    setIsSavingSlideSelection(true);
+    try {
+      const res = await fetch('/api/presentations/favorite-selection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          folderName: slidePreviewCard.folderName,
+          sourceFile: slidePreviewCard.sourceFile,
+          slideNumber: slidePreviewCard.slideNumber,
+          slideCount: slidePreviewCard.slideCount,
+          bbox: slideSelection,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert(`收藏失败：${data.error || '服务端未返回原因'}`);
+        return;
+      }
+      setMaterialCards(prev => [data.card, ...prev.filter(card => card.id !== data.card.id)]);
+      setSlideSelection(null);
+    } catch (err) {
+      alert('收藏失败：服务器未响应。');
+    } finally {
+      setIsSavingSlideSelection(false);
+    }
   };
 
   const renderMaterialCard = (card: any) => (
@@ -789,11 +893,11 @@ export default function Home() {
       onDragEnd={() => setDraggingCardId(null)}
       className="group rounded-md border border-siemens-stone/60 bg-white p-3 shadow-sm hover:border-primary/40 hover:shadow-md transition-all cursor-grab active:cursor-grabbing"
     >
-      {(card.type === 'image' || card.type === 'slide') && card.assetUrl && (
+      {(card.type === 'image' || card.type === 'slide' || card.type === 'ppt_selection') && card.assetUrl && (
         <div className="mb-3 aspect-[16/9] rounded border border-slate-100 bg-slate-50 overflow-hidden flex items-center justify-center">
           {card.type === 'slide' && failedSlidePreviewIds[card.id] ? (
             <div className="px-4 text-center text-xs text-amber-700">
-              无法生成真实PPT预览，请确认本机已安装 Microsoft PowerPoint。
+              无法生成真实 PPT 预览，请确认本机已安装 Microsoft PowerPoint。
             </div>
           ) : (
             <img
@@ -823,10 +927,22 @@ export default function Home() {
           <div className="mt-3 flex items-center justify-between gap-2">
             <span className="text-[10px] text-slate-400 truncate">{card.sourceFile}</span>
             <button
-              onClick={() => card.type === 'slide' ? setSlidePreviewCard(card) : card.sections?.length ? openCardDetail(card) : addCardToDeck(card)}
+              onClick={() => card.type === 'slide'
+                ? setSlidePreviewCard(card)
+                : card.type === 'ppt_selection'
+                  ? addCardToDeck(card)
+                  : card.sections?.length
+                    ? openCardDetail(card)
+                    : addCardToDeck(card)}
               className="px-1.5 py-0.5 rounded border border-primary/30 bg-primary/5 text-primary text-[10px] font-medium hover:bg-primary hover:text-white transition-colors"
             >
-              {card.type === 'slide' ? '预览' : card.sections?.length ? '选择内容' : 'Add'}
+              {card.type === 'slide'
+                ? '预览'
+                : card.type === 'ppt_selection'
+                  ? '加入'
+                  : card.sections?.length
+                    ? '选择内容'
+                    : '加入'}
             </button>
           </div>
         </div>
@@ -913,14 +1029,14 @@ export default function Home() {
                 </div>
                 <h3 className="mt-2 text-sm font-semibold text-slate-800 line-clamp-2">{item.title}</h3>
               </div>
-              <button
+                <button
                 onClick={() => removeDeckItem(item.deckId)}
                 className="shrink-0 text-xs text-slate-400 hover:text-red-500"
               >
-                移除
+                绉婚櫎
               </button>
             </div>
-            {(item.type === 'image' || item.type === 'slide') && item.assetUrl ? (
+            {(item.type === 'image' || item.type === 'slide' || item.type === 'ppt_selection') && item.assetUrl ? (
               <div className="mt-3 min-h-0 flex-1 rounded-md bg-slate-50 overflow-hidden flex items-center justify-center">
                 <img src={`${item.assetUrl}&mode=full`} alt={item.title} className="max-h-full max-w-full object-contain" />
               </div>
@@ -1062,36 +1178,84 @@ export default function Home() {
             <div className="relative bg-slate-800 p-5">
               {failedSlidePreviewIds[slidePreviewCard.id] ? (
                 <div className="mx-auto flex aspect-[16/9] max-h-[68vh] w-full items-center justify-center bg-slate-900 text-sm text-amber-300">
-                  无法生成真实PPT页面预览。请安装Microsoft PowerPoint后重新生成本地JSON。
+                  无法生成真实 PPT 页面预览。请安装 Microsoft PowerPoint 后重新生成本地 JSON。
                 </div>
               ) : (
-                <img
-                  src={slidePreviewCard.assetUrl}
-                  alt={slidePreviewCard.title}
-                  onError={() => setFailedSlidePreviewIds(prev => ({ ...prev, [slidePreviewCard.id]: true }))}
-                  className="mx-auto aspect-[16/9] max-h-[68vh] w-full object-contain"
-                />
+                <div
+                  ref={slideSelectionRef}
+                  onMouseDown={startSlideSelection}
+                  onMouseMove={updateSlideSelection}
+                  onMouseUp={finishSlideSelection}
+                  onMouseLeave={finishSlideSelection}
+                  className="relative mx-auto aspect-[16/9] max-h-[68vh] w-full cursor-crosshair select-none overflow-hidden bg-slate-950"
+                >
+                  <img
+                    src={slidePreviewCard.assetUrl}
+                    alt={slidePreviewCard.title}
+                    draggable={false}
+                    onError={() => setFailedSlidePreviewIds(prev => ({ ...prev, [slidePreviewCard.id]: true }))}
+                    className="h-full w-full object-contain"
+                  />
+                  {slideSelection && (
+                    <div
+                      className="pointer-events-none absolute border-2 border-cyan-300 bg-cyan-300/20 shadow-[0_0_0_9999px_rgba(15,23,42,0.35)]"
+                      style={{
+                        left: `${slideSelection.x * 100}%`,
+                        top: `${slideSelection.y * 100}%`,
+                        width: `${slideSelection.width * 100}%`,
+                        height: `${slideSelection.height * 100}%`,
+                      }}
+                    />
+                  )}
+                </div>
               )}
               <button
                 onClick={() => moveSlidePreview(-1)}
                 disabled={slidePreviewCard.slideNumber <= 1}
                 className="absolute left-7 top-1/2 -translate-y-1/2 rounded-full bg-slate-950/70 px-4 py-3 text-xl text-white disabled:opacity-20"
-              >‹</button>
+              >
+                ‹
+              </button>
               <button
                 onClick={() => moveSlidePreview(1)}
                 disabled={slidePreviewCard.slideNumber >= slidePreviewCard.slideCount}
                 className="absolute right-7 top-1/2 -translate-y-1/2 rounded-full bg-slate-950/70 px-4 py-3 text-xl text-white disabled:opacity-20"
-              >›</button>
+              >
+                ›
+              </button>
             </div>
             <div className="flex items-center justify-between gap-4 border-t border-white/10 px-5 py-4">
-              <p className="line-clamp-2 text-xs text-slate-400">{slidePreviewCard.body}</p>
-              <button
-                onClick={() => {
-                  addCardToDeck(slidePreviewCard);
-                  setSlidePreviewCard(null);
-                }}
-                className="shrink-0 rounded-md bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover"
-              >整页加入工作区</button>
+              <div className="min-w-0">
+                <p className="line-clamp-2 text-xs text-slate-400">{slidePreviewCard.body}</p>
+                <p className="mt-1 text-[11px] text-cyan-200">
+                  {slideSelection ? '已框选区域，可收藏为精选内容' : '在预览图上拖拽框选需要收藏的内容'}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  onClick={() => setSlideSelection(null)}
+                  disabled={!slideSelection || isSavingSlideSelection}
+                  className="rounded-md border border-white/15 px-4 py-2 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  清除框选
+                </button>
+                <button
+                  onClick={favoriteSlideSelection}
+                  disabled={!slideSelection || isSavingSlideSelection}
+                  className="rounded-md bg-cyan-500 px-5 py-2 text-sm font-medium text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {isSavingSlideSelection ? '收藏中...' : 'Favorite'}
+                </button>
+                <button
+                  onClick={() => {
+                    addCardToDeck(slidePreviewCard);
+                    setSlidePreviewCard(null);
+                  }}
+                  className="shrink-0 rounded-md bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary-hover"
+                >
+                  整页加入工作区
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1103,8 +1267,8 @@ export default function Home() {
           <div className="bg-white rounded-lg shadow-2xl w-[600px] h-[500px] flex flex-col overflow-hidden border border-siemens-stone/40">
             {/* Header */}
             <div className="bg-slate-100 p-3 border-b border-siemens-stone/40 flex justify-between items-center">
-              <h3 className="font-semibold text-slate-700">选择文件夹 (Browse Folder)</h3>
-              <button onClick={() => setShowPicker(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+              <h3 className="font-semibold text-slate-700">选择文件夹</h3>
+              <button onClick={() => setShowPicker(false)} className="text-slate-400 hover:text-slate-600">×</button>
             </div>
             
             {/* Address Bar */}
@@ -1114,7 +1278,7 @@ export default function Home() {
                 disabled={!pickerParent || pickerParent === pickerPath}
                 className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded disabled:opacity-50 flex-shrink-0"
               >
-                ⬆ 返回上级
+                返回上级
               </button>
               <input 
                 type="text" 
@@ -1126,7 +1290,7 @@ export default function Home() {
                 onClick={handleCreateFolder}
                 className="px-3 py-1 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded flex-shrink-0 flex items-center gap-1"
               >
-                <span>➕</span> 新建文件夹
+                <span>＋</span> 新建文件夹
               </button>
             </div>
             
@@ -1135,7 +1299,7 @@ export default function Home() {
               {pickerLoading ? (
                 <div className="flex justify-center items-center h-full text-slate-400">Loading...</div>
               ) : pickerDirs.length === 0 ? (
-                <div className="flex justify-center items-center h-full text-slate-400 text-sm">此文件夹为空或无子目录</div>
+                <div className="flex justify-center items-center h-full text-slate-400 text-sm">此文件夹为空或没有子目录</div>
               ) : (
                 <div className="grid grid-cols-1 gap-1">
                   {pickerDirs.map(dir => (
@@ -1144,7 +1308,7 @@ export default function Home() {
                       onClick={() => loadPickerPath(pickerPath + '\\' + dir)}
                       className="flex items-center gap-2 p-2 hover:bg-primary/5 rounded cursor-pointer group"
                     >
-                      <span className="text-xl group-hover:scale-110 transition-transform">📁</span>
+                      <span className="text-xl group-hover:scale-110 transition-transform">▸</span>
                       <span className="text-sm text-slate-700 font-medium select-none">{dir}</span>
                     </div>
                   ))}
@@ -1188,14 +1352,14 @@ export default function Home() {
                   type="text" 
                   value={setupPath}
                   onChange={e => setSetupPath(e.target.value)}
-                  placeholder="点击右侧按钮浏览，或直接输入例如: D:\PM_Materials"
+                  placeholder="点击右侧按钮浏览，或直接输入例如：D:\PM_Materials"
                   className="flex-1 border border-siemens-stone bg-white rounded-md p-2 text-sm text-slate-700 focus:outline-none focus:border-primary"
                 />
                 <button 
                   onClick={handleOpenPicker}
                   className="px-4 py-2 bg-siemens-stone/40 hover:bg-siemens-stone border border-siemens-stone rounded-md text-sm font-medium transition-colors whitespace-nowrap"
                 >
-                  📁 浏览文件夹...
+                  浏览文件夹...
                 </button>
               </div>
             </div>
@@ -1205,7 +1369,7 @@ export default function Home() {
                 disabled={!setupPath}
                 className={`px-6 py-2 rounded-md shadow transition-all ${setupPath ? 'bg-primary text-white hover-lift' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}
               >
-                Create Data Area (创建资料区)
+                创建资料区
               </button>
             </div>
           </div>
@@ -1258,7 +1422,7 @@ export default function Home() {
                 disabled={!llmApiKeyInput || isTestingLlm}
                 className={`px-6 py-2 rounded shadow transition-all flex items-center gap-2 ${llmApiKeyInput ? 'bg-primary text-white hover-lift' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}
               >
-                {isTestingLlm ? 'Testing...' : 'Test & Save (测试并保存)'}
+                {isTestingLlm ? '测试中...' : '测试并保存'}
               </button>
             </div>
           </div>
@@ -1303,7 +1467,7 @@ export default function Home() {
         <div className="flex items-center gap-4 text-sm font-medium">
           {workspaceInfo?.workspacePath && (
             <span className="text-xs text-slate-400 mr-4">
-              🗂️ {workspaceInfo.workspacePath}
+              {workspaceInfo.workspacePath}
             </span>
           )}
           <button
@@ -1311,7 +1475,7 @@ export default function Home() {
             disabled={isGeneratingHtml || totalDeckBlocks === 0}
             className={`px-4 py-2 rounded-md shadow-md transition-all ${isGeneratingHtml || totalDeckBlocks === 0 ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-primary text-primary-foreground hover-lift'}`}
           >
-            {isGeneratingHtml ? 'Generating...' : '生成预览'}
+            {isGeneratingHtml ? '生成中...' : '生成预览'}
           </button>
           <button
             onClick={handleExportHtml}
@@ -1325,7 +1489,7 @@ export default function Home() {
             title="设置"
             className="ml-4 w-9 h-9 rounded-full bg-siemens-stone flex items-center justify-center hover:bg-siemens-stone/80 transition-colors"
           >
-            ⚙️
+            ⚙
           </button>
         </div>
       </header>
@@ -1338,7 +1502,7 @@ export default function Home() {
           <div className="p-4 border-b border-siemens-stone/30">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold text-sm text-slate-500 uppercase tracking-wider">
-                Material Library
+                物料库
               </h2>
               {/* Sync Button moved to Library Header */}
               {workspaceInfo && (
@@ -1347,7 +1511,7 @@ export default function Home() {
                   disabled={isSyncing}
                   className={`text-xs px-2 py-1 rounded border ${isSyncing ? 'text-slate-400 border-slate-200' : 'text-primary border-primary/30 hover:bg-primary/10'} transition-colors`}
                 >
-                  {isSyncing ? 'Syncing...' : '↻ Sync'}
+                  {isSyncing ? '同步中...' : '同步'}
                 </button>
               )}
             </div>
@@ -1355,7 +1519,7 @@ export default function Home() {
             <div className="relative">
               <input 
                 type="text" 
-                placeholder="Search materials..." 
+                placeholder="搜索物料..." 
                 className="w-full bg-white border border-siemens-stone rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-shadow"
               />
             </div>
@@ -1364,7 +1528,7 @@ export default function Home() {
             
             {!workspaceInfo && !showSetup && (
               <div className="text-center text-sm text-slate-500 mt-10">
-                <button onClick={handleSync} className="text-primary hover:underline">Click to Initialize Workspace</button>
+                <button onClick={handleSync} className="text-primary hover:underline">初始化工作区</button>
               </div>
             )}
 
@@ -1380,9 +1544,9 @@ export default function Home() {
                     className="flex items-center gap-2 mb-1 cursor-pointer"
                     onClick={() => handleFolderClick(folderName)}
                   >
-                    <span className="text-lg">{isExpanded ? '📂' : '📁'}</span>
-                    <span className={`font-medium text-xs truncate ${isSelected ? 'text-primary' : 'text-slate-700'}`} title={folderName}>
-                      {folderName}
+                    <span className="text-lg">{isExpanded ? '▾' : '▸'}</span>
+                    <span className={`font-medium text-xs truncate ${isSelected ? 'text-primary' : 'text-slate-700'}`} title={displayFolderName(folderName)}>
+                      {displayFolderName(folderName)}
                     </span>
                     {filesInFolder.length > 0 && (
                       <span className="ml-auto bg-siemens-stone/40 text-[10px] px-1.5 rounded-full text-slate-600">
@@ -1397,15 +1561,15 @@ export default function Home() {
                         const fileName = file.relativePath.split(/\\|\//).pop();
                         return (
                           <div key={file.relativePath} className="text-[11px] text-slate-500 hover:text-primary cursor-pointer truncate flex items-center justify-between">
-                            <span title={fileName}>📄 {fileName}</span>
+                            <span title={fileName}>{fileName}</span>
                           </div>
                         );
                       })}
                     </div>
                   ) : filesInFolder.length === 0 ? (
-                    <div className="pl-6 text-[10px] text-slate-300 italic">Empty</div>
+                    <div className="pl-6 text-[10px] text-slate-300 italic">空</div>
                   ) : (
-                    <div className="pl-6 text-[10px] text-slate-300 italic">Collapsed</div>
+                    <div className="pl-6 text-[10px] text-slate-300 italic">已折叠</div>
                   )}
                 </div>
               );
@@ -1431,7 +1595,7 @@ export default function Home() {
                 </button>
               </div>
               <div className="text-sm text-slate-400">
-                Workspace ({deckPages.length} pages · {totalDeckBlocks} blocks)
+                工作区（{deckPages.length} 页 · {totalDeckBlocks} 个内容块）
               </div>
             </div>
 
@@ -1440,10 +1604,10 @@ export default function Home() {
                 <div>
                   <h2 className="text-sm font-semibold text-slate-700">可用物料卡片</h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    {selectedFolder ? '优先使用主数据与精选主题卡，原始候选仅用于核对' : '先在左侧选择资料分类'}
+                    {selectedFolder ? '优先使用 PM 框选精选和主数据卡，原始候选仅用于核对' : '先在左侧选择资料分类'}
                   </p>
                 </div>
-                <span className="text-xs text-slate-400">{aiMaterialCards.length} 精炼 · {sourceSlideCards.length} 原始页</span>
+                <span className="text-xs text-slate-400">{favoriteMaterialCards.length} 框选精选 · {aiMaterialCards.length} 精炼 · {sourceSlideCards.length} 原始页</span>
               </div>
 
               {!selectedFolder ? (
@@ -1453,7 +1617,7 @@ export default function Home() {
               ) : materialCards.length === 0 ? (
                 <div className="h-28 flex flex-col items-center justify-center text-sm text-slate-400 border border-dashed border-siemens-stone rounded-md">
                   <p>还没有卡片</p>
-                  <p className="text-xs mt-1">先在右侧点击“生成 / 更新本地 JSON”</p>
+                  <p className="text-xs mt-1">先在右侧生成或更新本地 JSON</p>
                 </div>
               ) : (
                 <div className="max-h-[320px] overflow-y-auto pr-1 space-y-4">
@@ -1462,10 +1626,20 @@ export default function Home() {
                       <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700 hover:text-primary">
                         <span className="ml-2">{group.sourceFile}</span>
                         <span className="ml-2 text-[11px] font-normal text-slate-400">
-                          {group.refinedCards.length} 张精炼 · {group.slideCards.length} 张原始页
+                          {group.favoriteCards.length} 张框选精选 · {group.refinedCards.length} 张精炼 · {group.slideCards.length} 张原始页
                         </span>
                       </summary>
                       <div className="space-y-4 border-t border-slate-200 bg-white p-4">
+                        {group.favoriteCards.length > 0 && (
+                          <details open>
+                            <summary className="cursor-pointer text-xs font-semibold text-violet-700">
+                              PM 框选精选 ({group.favoriteCards.length})
+                            </summary>
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-2">
+                              {group.favoriteCards.map(renderMaterialCard)}
+                            </div>
+                          </details>
+                        )}
                         {group.refinedCards.length > 0 && (
                           <details open>
                             <summary className="cursor-pointer text-xs font-semibold text-primary">
@@ -1480,7 +1654,7 @@ export default function Home() {
                           <summary className="cursor-pointer text-xs font-semibold text-indigo-700 hover:text-primary">
                             原始 PPT 页面 ({group.slideCards.length})
                           </summary>
-                          <p className="mt-1 text-[11px] text-slate-400">点击缩略图预览，确认后可整页加入工作区。</p>
+                          <p className="mt-1 text-[11px] text-slate-400">点击缩略图预览，可整页加入工作区，也可在预览中框选 Favorite。</p>
                           <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-2">
                             {group.slideCards.map(renderMaterialCard)}
                           </div>
@@ -1521,7 +1695,7 @@ export default function Home() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h2 className="text-sm font-semibold text-slate-700">HTML PPT 工作区</h2>
-                  <p className="text-xs text-slate-400 mt-1">每页可以组合多个物料块，拖入后加入当前页面</p>
+                  <p className="text-xs text-slate-400 mt-1">每页可以组合多个物料块，拖入后加入当前页面。</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -1593,7 +1767,7 @@ export default function Home() {
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-xs font-semibold text-slate-700">页面布局</p>
-                    <p className="mt-0.5 text-[11px] text-slate-400">布局表达内容关系，最终 HTML 可按内容量动态调整比例</p>
+                    <p className="mt-0.5 text-[11px] text-slate-400">布局表达内容关系，最终 HTML 可按内容量动态调整比例。</p>
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
                     {PAGE_LAYOUTS.map(layout => (
@@ -1685,11 +1859,11 @@ export default function Home() {
                           onClick={() => removeDeckItem(item.deckId)}
                           className="text-xs text-slate-400 hover:text-red-500"
                         >
-                          移除
+                          绉婚櫎
                         </button>
                       </div>
                       <div className="p-5">
-                        {(item.type === 'image' || item.type === 'slide') && item.assetUrl ? (
+                        {(item.type === 'image' || item.type === 'slide' || item.type === 'ppt_selection') && item.assetUrl ? (
                           <div className="grid grid-cols-[minmax(220px,360px)_1fr] gap-5 items-center">
                             <div className="aspect-[4/3] rounded-md border border-slate-100 bg-slate-50 overflow-hidden flex items-center justify-center">
                               <img src={`${item.assetUrl}&mode=full`} alt={item.title} className="max-h-full max-w-full object-contain" />
@@ -1733,23 +1907,23 @@ export default function Home() {
         <aside className="w-[340px] border-l border-siemens-stone/40 bg-white/50 backdrop-blur flex flex-col">
           <div className="p-6 border-b border-siemens-stone/30">
             <h2 className="font-semibold text-sm text-slate-500 uppercase tracking-wider">
-              Local JSON Index
+              本地 JSON 索引
             </h2>
           </div>
           
           <div className="p-6 flex-1 overflow-y-auto">
             {!selectedFolder ? (
               <div className="p-6 bg-siemens-stone/20 rounded-lg border border-siemens-stone/40 text-center text-sm text-slate-500">
-                👈 请在左侧选择一个资料分类，先把文件压缩成本地 JSON
+                请在左侧选择一个资料分类，先把文件压缩成本地 JSON。
               </div>
             ) : (
               <div className="space-y-4">
                 <div>
                   <h3 className="text-sm font-semibold text-primary mb-1 border-b border-siemens-stone/50 pb-2">
-                    📁 {selectedFolder}
+                    {displayFolderName(selectedFolder)}
                   </h3>
                   <p className="text-xs text-slate-500 mt-2">
-                    本地读取 PDF、Word、PPT、Excel 和图片素材，生成 raw JSON 或 image manifest。这个步骤不调用大模型，不消耗 API token。
+                    本地读取 PDF、Word、PPT、Excel 和图片素材，生成 raw JSON 或 image manifest。这一步不调用大模型，不消耗 API token。
                   </p>
                 </div>
                 
@@ -1797,7 +1971,7 @@ export default function Home() {
                             </div>
                             {r.status === 'indexed' && (
                               <p className="mt-1 text-slate-400">
-                                {r.width && r.height ? `${r.width} x ${r.height}` : `${r.chunks || 0} chunks · ${r.mlfbCandidates || 0} MLFB 候选`}
+                                {r.width && r.height ? `${r.width} x ${r.height}` : `${r.chunks || 0} chunks · ${r.mlfbCandidates || 0} MLFB candidates`}
                               </p>
                             )}
                             {r.message && <p className="mt-1 text-red-500">{r.message}</p>}
@@ -1827,14 +2001,14 @@ export default function Home() {
                     disabled={isSavingRule}
                     className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
                   >
-                    {isSavingRule ? '💾 保存中...' : '💾 保存规则'}
+                    {isSavingRule ? '保存中...' : '保存规则'}
                   </button>
                   <button 
                     onClick={handleExtractBatch}
                     disabled={isExtracting}
                     className={`flex-1 px-3 py-2 text-white rounded shadow-md text-xs font-medium transition-all ${isExtracting ? 'bg-slate-400 cursor-not-allowed' : 'bg-primary hover-lift'}`}
                   >
-                    {isExtracting ? '🚀 提取中 (请耐心等待)...' : '🚀 批量提取该目录'}
+                    {isExtracting ? '提取中，请耐心等待...' : '批量提取该目录'}
                   </button>
                     </div>
                   </div>
@@ -1843,9 +2017,9 @@ export default function Home() {
                 <div className="mt-6 pt-4 border-t border-siemens-stone/40">
                   <h4 className="text-xs font-semibold text-slate-600 mb-2">文件夹状态</h4>
                   <div className="text-[11px] text-slate-500 space-y-1">
-                    <p>总计文件：{groupedFiles[selectedFolder]?.length || 0} 份</p>
-                    <p>本地 JSON：<span className="text-emerald-500 font-semibold">{workspaceInfo?.localIndexCounts?.[selectedFolder] || 0} 份</span></p>
-                    <p>大模型精提取：<span className="text-slate-400 font-semibold">{workspaceInfo?.extractedCounts?.[selectedFolder] || 0} 份</span></p>
+                    <p>总计文件：{groupedFiles[selectedFolder]?.length || 0} 个</p>
+                    <p>本地 JSON：<span className="text-emerald-500 font-semibold">{workspaceInfo?.localIndexCounts?.[selectedFolder] || 0} 个</span></p>
+                    <p>大模型精提取：<span className="text-slate-400 font-semibold">{workspaceInfo?.extractedCounts?.[selectedFolder] || 0} 个</span></p>
                   </div>
                 </div>
 
@@ -1860,7 +2034,7 @@ export default function Home() {
                             <div className="flex justify-between items-center gap-2">
                               <span className="truncate w-3/4" title={r.file}>{r.file}</span>
                               <span className={r.status === 'success' ? 'text-emerald-500' : r.status === 'skipped' ? 'text-slate-400' : 'text-red-500'}>
-                                {r.status === 'success' ? '✅ 成功' : r.status === 'skipped' ? '⏭️ 跳过' : '❌ 失败'}
+                                {r.status === 'success' ? '成功' : r.status === 'skipped' ? '跳过' : '失败'}
                               </span>
                             </div>
                             {r.error && <p className="mt-1 text-red-500 break-words">{r.error}</p>}

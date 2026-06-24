@@ -3,15 +3,16 @@ import fs from 'fs';
 import path from 'path';
 import { getMaterialProfile } from '@/lib/materialProfiles';
 import { readManualCards } from '@/lib/manualCardGenerator';
+import { readPptSelectionCards } from '@/lib/pptSelectionFavorites';
 
 type MaterialCard = {
   id: string;
-  type: 'document' | 'slide' | 'mlfb' | 'evidence' | 'product' | 'module' | 'accessory' | 'certificate'
+  type: 'document' | 'slide' | 'ppt_selection' | 'mlfb' | 'evidence' | 'product' | 'module' | 'accessory' | 'certificate'
     | 'product_master' | 'product_overview' | 'technical_feature' | 'technical_spec' | 'limitation'
     | 'value_proposition' | 'application' | 'comparison' | 'case_study' | 'customer_pain'
     | 'solution' | 'business_result' | 'sales_message' | 'objection_handling' | 'competitive_claim'
     | 'release_notice' | 'faq' | 'troubleshooting' | 'image';
-  stage: 'ai' | 'master' | 'source' | 'raw';
+  stage: 'ai' | 'master' | 'source' | 'raw' | 'favorite';
   title: string;
   subtitle: string;
   body: string;
@@ -355,8 +356,9 @@ export async function GET(req: Request) {
     }
 
     const folderPath = path.join(process.cwd(), 'data', 'local-json-indexes', folderName);
+    const favoriteCards = readPptSelectionCards(folderName);
     if (!fs.existsSync(folderPath)) {
-      return NextResponse.json({ success: true, cards: [] });
+      return NextResponse.json({ success: true, cards: favoriteCards });
     }
 
     const cards = fs.readdirSync(folderPath)
@@ -383,7 +385,7 @@ export async function GET(req: Request) {
         return aiCards.length > 0 ? [...aiCards, ...slideCards, ...rawCards] : [...slideCards, ...rawCards];
       });
 
-    return NextResponse.json({ success: true, cards });
+    return NextResponse.json({ success: true, cards: [...favoriteCards, ...cards] });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to load material cards';
     return NextResponse.json({ success: false, error: message }, { status: 500 });

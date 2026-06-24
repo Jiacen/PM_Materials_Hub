@@ -1,4 +1,4 @@
-import fs from 'fs';
+﻿import fs from 'fs';
 import path from 'path';
 
 export const STANDARD_FOLDERS = [
@@ -11,7 +11,7 @@ export const STANDARD_FOLDERS = [
   "07_文本资料",
   "08_产品图片素材",
   "09_认证证书",
-  "10_FAQ_常见问题集"
+  "10_FAQ_常见问题集",
 ];
 
 const SETTINGS_PATH = path.join(process.cwd(), 'config', 'settings.json');

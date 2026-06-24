@@ -6,6 +6,7 @@ import { llmService } from './llmService';
 import { getWorkspacePath } from './fileSystem';
 import { ensurePresentationPreviews, getPresentationPreviewPath } from './presentationPreview';
 import { buildTemplateStyleLibrary, pickTemplateStyles, type TemplateStyle } from './templateStyleLibrary';
+import { getPptSelectionImagePath } from './pptSelectionFavorites';
 
 type DeckItem = {
   id?: string;
@@ -265,6 +266,16 @@ async function embedAsset(item: DeckItem, warnings: string[]) {
     return imageFileToDataUri(filePath, contentTypeFromPath(filePath) === 'image/png' ? 'image' : 'image');
   }
 
+  if (url.pathname === '/api/assets/ppt-selection') {
+    const id = url.searchParams.get('id') || item.id || '';
+    const imagePath = getPptSelectionImagePath(id);
+    if (!imagePath) {
+      warnings.push(`PPT selection image unavailable: ${id}`);
+      return undefined;
+    }
+    return imageFileToDataUri(imagePath, 'slide');
+  }
+
   return undefined;
 }
 
@@ -452,7 +463,7 @@ function renderPage(page: EmbeddedPage, blueprintPage: BlueprintPage, pageIndex:
           <span>${escapeHtml(page.title || '')}</span>
         </header>
         <div class="content-grid ${layoutClass(blueprintPage.layout || page.layout)}">
-          ${blocks.map(({ item, block }) => item.type === 'image' || item.type === 'slide'
+          ${blocks.map(({ item, block }) => item.type === 'image' || item.type === 'slide' || item.type === 'ppt_selection'
             ? renderImageBlock(item, block)
             : renderTextBlock(item, block)
           ).join('')}
@@ -528,7 +539,7 @@ function renderPageV2(page: EmbeddedPage, blueprintPage: BlueprintPage, pageInde
           </div>
         </header>
         <div class="content-grid ${layoutClassV2(renderLayout)}">
-          ${blocks.map(({ item, block }) => item.type === 'image' || item.type === 'slide'
+          ${blocks.map(({ item, block }) => item.type === 'image' || item.type === 'slide' || item.type === 'ppt_selection'
             ? renderImageBlockV2(item, block)
             : renderTextBlockV2(item, block)
           ).join('')}
