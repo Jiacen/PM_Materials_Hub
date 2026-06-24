@@ -163,6 +163,7 @@ Extraction behavior is folder-specific and configured in `pm-material-hub/src/li
 - Excel product lists generate deterministic master-data records without requiring an LLM.
 - PowerPoint files are indexed page by page, preserving slide titles, text, lists, tables, notes, image references, and slide evidence IDs.
 - Original PowerPoint page previews are true PNG exports from the installed Microsoft PowerPoint application, not JSON-derived reconstructions.
+- MVP preview support requires Microsoft PowerPoint. WPS Office is not supported by the current renderer.
 - Multiple PowerPoint files are grouped by source file. Each file has independently collapsible refined-content and original-page sections.
 - PowerPoint files do not create an extra generic raw-document candidate card because their page cards already preserve the source.
 - PDFs use their embedded text layer first. Scanned PDFs automatically fall back to local Tesseract OCR.

@@ -33,7 +33,7 @@ type MaterialCard = {
 };
 
 function cardsFromPresentationSlides(folderName: string, sourceFile: string, raw: any): MaterialCard[] {
-  if (!folderName.startsWith('04_') || !Array.isArray(raw?.slides)) return [];
+  if (!Array.isArray(raw?.slides)) return [];
 
   const slideCount = raw.slides.length;
   return raw.slides.map((slide: any, index: number) => {

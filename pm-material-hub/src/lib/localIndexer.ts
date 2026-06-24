@@ -131,6 +131,11 @@ export async function indexFolderLocally(folderName: string, force = false): Pro
       if (!force && fs.existsSync(outputPath)) {
         const existing = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
         if (existing?.source?.sha256 === fileHash && existing?.source?.mtimeMs === stat.mtimeMs) {
+          if (['.ppt', '.pptx'].includes(ext)) {
+            const slideCount = Array.isArray(existing?.slides) ? existing.slides.length : 0;
+            const { ensurePresentationPreviews } = await import('@/lib/presentationPreview');
+            await ensurePresentationPreviews(folderName, file, slideCount, false);
+          }
           results.push({ file, status: 'skipped', message: 'Already indexed', outputPath });
           continue;
         }

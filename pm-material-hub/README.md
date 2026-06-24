@@ -87,6 +87,7 @@ Format behavior:
 - Each PPT/PPTX is displayed as an independently collapsible file group containing separate refined-content and original-page sections.
 - Original-page thumbnails are real PNG exports produced by installed Microsoft PowerPoint on Windows and cached under `data/slide-previews/`. They are not reconstructed from extracted JSON.
 - If PowerPoint is unavailable, the app reports that native previews cannot be generated instead of showing a synthetic summary image.
+- MVP preview support requires Microsoft PowerPoint. WPS Office is not supported by the current renderer.
 - PPT/PPTX files do not create a generic raw-document candidate card because their original-page cards already provide the complete source layer.
 - Source changes mark indexes stale; missing source files are treated as orphaned. The folder catalog exposes these states.
 - PDFs use embedded text first and automatically use local Tesseract OCR when no usable text layer exists.
