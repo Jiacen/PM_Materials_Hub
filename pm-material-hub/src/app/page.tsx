@@ -82,6 +82,11 @@ export default function Home() {
   const [selectedDetailItems, setSelectedDetailItems] = useState<Record<string, boolean>>({});
   const [slidePreviewCard, setSlidePreviewCard] = useState<any | null>(null);
   const [failedSlidePreviewIds, setFailedSlidePreviewIds] = useState<Record<string, boolean>>({});
+  const [isGeneratingHtml, setIsGeneratingHtml] = useState(false);
+  const [generationInstruction, setGenerationInstruction] = useState("");
+  const [generatedHtmlPreview, setGeneratedHtmlPreview] = useState<any | null>(null);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [isClearingWorkspace, setIsClearingWorkspace] = useState(false);
 
   const loadPrompts = async () => {
     try {
@@ -303,6 +308,53 @@ export default function Home() {
     loadLlmStatus();
   }, []);
 
+  useEffect(() => {
+    const loadWorkspaceDraft = async () => {
+      try {
+        const res = await fetch('/api/workspace/draft');
+        const data = await res.json();
+        const draft = data?.draft;
+        if (draft?.deckPages?.length) {
+          setDeckPages(draft.deckPages);
+          setActivePageId(draft.activePageId || draft.deckPages[0]?.id || 'page-1');
+        }
+        if (typeof draft?.generationInstruction === 'string') {
+          setGenerationInstruction(draft.generationInstruction);
+        }
+        if (draft?.generatedHtmlPreview) {
+          setGeneratedHtmlPreview(draft.generatedHtmlPreview);
+        }
+      } catch (err) {
+        console.error("Failed to load workspace draft", err);
+      } finally {
+        setDraftLoaded(true);
+      }
+    };
+    loadWorkspaceDraft();
+  }, []);
+
+  useEffect(() => {
+    if (!draftLoaded) return;
+    const timeout = window.setTimeout(async () => {
+      try {
+        await fetch('/api/workspace/draft', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deckPages,
+            activePageId,
+            generationInstruction,
+            generatedHtmlPreview,
+          }),
+        });
+      } catch (err) {
+        console.error("Failed to save workspace draft", err);
+      }
+    }, 500);
+
+    return () => window.clearTimeout(timeout);
+  }, [draftLoaded, deckPages, activePageId, generationInstruction, generatedHtmlPreview]);
+
   const handleLlmSubmit = async () => {
     if (!llmApiKeyInput) return;
     setIsTestingLlm(true);
@@ -330,6 +382,107 @@ export default function Home() {
   };
 
   // Group files by their parent folder (e.g. 01_产品物料表格)
+  const getGenerationSignature = (pages = deckPages, instruction = generationInstruction) => JSON.stringify({
+    instruction,
+    pages: pages
+      .filter(page => page.items?.length > 0)
+      .map(page => ({
+        id: page.id,
+        title: page.title,
+        layout: page.layout,
+        items: page.items.map((item: any) => ({
+          deckId: item.deckId,
+          id: item.id,
+          type: item.type,
+          title: item.title,
+          body: item.body,
+          slotId: item.slotId,
+          sourceFile: item.sourceFile,
+          chunkIds: item.chunkIds,
+          slideNumber: item.slideNumber,
+        })),
+      })),
+  });
+
+  const downloadHtmlPreview = (preview: any) => {
+    const blob = new Blob([preview.html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = preview.fileName || 'presentation.html';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  };
+
+  const openHtmlPreview = (preview: any) => {
+    if (preview.previewUrl) {
+      window.open(preview.previewUrl, '_blank');
+      return;
+    }
+    const blob = new Blob([preview.html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  };
+
+  const handleGeneratePreview = async () => {
+    const pagesWithItems = deckPages.filter(page => page.items?.length > 0);
+    if (pagesWithItems.length === 0) {
+      alert("请先把物料卡片拖入 HTML PPT 工作区。");
+      return;
+    }
+
+    setIsGeneratingHtml(true);
+    try {
+      const res = await fetch('/api/presentations/generate-html', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: '产品胶片生成预览',
+          pages: pagesWithItems,
+          generationInstruction,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert("HTML PPT 预览生成失败：" + data.error);
+        return;
+      }
+
+      const preview = {
+        html: data.html,
+        fileName: data.fileName || 'presentation.html',
+        previewUrl: data.previewUrl,
+        finalizedBy: data.finalizedBy,
+        warnings: data.warnings || [],
+        generatedAt: new Date().toISOString(),
+        signature: getGenerationSignature(pagesWithItems, generationInstruction),
+      };
+      setGeneratedHtmlPreview(preview);
+      openHtmlPreview(preview);
+    } catch (err) {
+      alert("HTML PPT 预览生成失败，服务器未响应。");
+    } finally {
+      setIsGeneratingHtml(false);
+    }
+  };
+
+  const handleExportHtml = () => {
+    if (!generatedHtmlPreview) {
+      alert("请先点击“生成预览”，确认效果后再导出 HTML。");
+      return;
+    }
+    if (generatedHtmlPreview.signature !== getGenerationSignature()) {
+      alert("工作区内容或生成要求已变化，请重新生成预览后再导出。");
+      return;
+    }
+    downloadHtmlPreview(generatedHtmlPreview);
+  };
+
+  const isPreviewCurrent = generatedHtmlPreview?.signature === getGenerationSignature();
+
   const groupedFiles = workspaceInfo?.files?.reduce((acc: any, file: any) => {
     const parts = file.relativePath.split(/\\|\//); // handle win/mac slashes
     const folder = parts[0];
@@ -483,6 +636,25 @@ export default function Home() {
 
   const clearActivePage = () => {
     setDeckPages(prev => prev.map(page => page.id === activePageId ? { ...page, items: [] } : page));
+  };
+
+  const clearWorkspace = async () => {
+    const confirmed = window.confirm("确定清空整个工作区草稿吗？这会移除所有页面、卡片和本次生成要求。");
+    if (!confirmed) return;
+
+    setIsClearingWorkspace(true);
+    try {
+      await fetch('/api/workspace/draft', { method: 'DELETE' });
+      const firstPage = { id: 'page-1', title: 'Page 1', layout: 'single', items: [] };
+      setDeckPages([firstPage]);
+      setActivePageId(firstPage.id);
+      setGenerationInstruction("");
+      setGeneratedHtmlPreview(null);
+    } catch (err) {
+      alert("清空工作区失败，服务器未响应。");
+    } finally {
+      setIsClearingWorkspace(false);
+    }
   };
 
   const removeDeckItem = (deckId: string) => {
@@ -1134,13 +1306,25 @@ export default function Home() {
               🗂️ {workspaceInfo.workspacePath}
             </span>
           )}
-          <button className="px-4 py-2 rounded-md hover:bg-siemens-stone/50 transition-colors">
-            Preview
+          <button
+            onClick={handleGeneratePreview}
+            disabled={isGeneratingHtml || totalDeckBlocks === 0}
+            className={`px-4 py-2 rounded-md shadow-md transition-all ${isGeneratingHtml || totalDeckBlocks === 0 ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-primary text-primary-foreground hover-lift'}`}
+          >
+            {isGeneratingHtml ? 'Generating...' : '生成预览'}
           </button>
-          <button className="px-4 py-2 rounded-md bg-primary text-primary-foreground shadow-md hover-lift transition-all">
-            Export HTML
+          <button
+            onClick={handleExportHtml}
+            disabled={!generatedHtmlPreview || !isPreviewCurrent || isGeneratingHtml}
+            className={`px-4 py-2 rounded-md shadow-md transition-all ${!generatedHtmlPreview || !isPreviewCurrent || isGeneratingHtml ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-800 text-white hover:bg-slate-700'}`}
+          >
+            导出 HTML
           </button>
-          <button className="ml-4 w-9 h-9 rounded-full bg-siemens-stone flex items-center justify-center hover:bg-siemens-stone/80 transition-colors">
+          <button
+            onClick={() => setShowLlmSetup(true)}
+            title="设置"
+            className="ml-4 w-9 h-9 rounded-full bg-siemens-stone flex items-center justify-center hover:bg-siemens-stone/80 transition-colors"
+          >
             ⚙️
           </button>
         </div>
@@ -1362,6 +1546,13 @@ export default function Home() {
                       清空当前页
                     </button>
                   )}
+                  <button
+                    onClick={clearWorkspace}
+                    disabled={isClearingWorkspace}
+                    className="text-xs px-2 py-1 rounded border border-red-200 text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isClearingWorkspace ? '清空中...' : '清空工作区'}
+                  </button>
                 </div>
               </div>
 
@@ -1375,6 +1566,27 @@ export default function Home() {
                     {page.title} · {page.items.length}
                   </button>
                 ))}
+              </div>
+
+              <div className="mb-4 rounded-lg border border-slate-200 bg-white/80 p-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-slate-700">本次生成要求</p>
+                    <textarea
+                      value={generationInstruction}
+                      onChange={(event) => setGenerationInstruction(event.target.value)}
+                      placeholder="例如：更偏销售场景，文字少一点，突出客户价值；技术参数只保留关键证据。"
+                      className="mt-2 h-20 w-full resize-none rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-700 outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="w-44 rounded-md border border-slate-100 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-500">
+                    {!generatedHtmlPreview
+                      ? '尚未生成预览'
+                      : isPreviewCurrent
+                        ? `预览已生成：${generatedHtmlPreview.finalizedBy === 'llm' ? '模型生成' : '规则兜底'}`
+                        : '预览已过期，请重新生成'}
+                  </div>
+                </div>
               </div>
 
               <div className="mb-4 rounded-lg border border-slate-200 bg-white/80 p-3">
