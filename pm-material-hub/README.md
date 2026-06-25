@@ -1,6 +1,6 @@
 # PM Material Hub App
 
-Local-first Next.js workspace for converting product-management source files into reusable, evidence-backed material cards and assembling them into HTML presentation pages.
+This is the Next.js application for PM Material Hub. It scans local product-management materials, creates reusable cards, supports a visual multi-page workspace, and generates editable HTML PPT previews and exports.
 
 ## Setup
 
@@ -9,92 +9,175 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-Open `http://localhost:3001/` when using the supplied development launcher, or the URL printed by Next.js.
+Open:
 
-Production:
+```text
+http://localhost:3001/
+```
+
+Production build:
 
 ```powershell
 npm.cmd run build
 npm.cmd run start
 ```
 
-On Linux, run `npm install` on the Linux host because OCR includes native dependencies. Do not copy Windows `node_modules`.
+Use `npm.cmd` on Windows. OCR and image processing use native dependencies, so do not copy `node_modules` between operating systems.
 
-## Material Workspace
+## Runtime Requirements
 
-The source-material path is configured in `config/settings.json`. The standard order is:
+Minimum runtime:
 
-1. `01_产品物料表格` - authoritative MLFB, SAP, ordering, price, and lifecycle master data
-2. `02_Catalogue_产品样本` - product family, positioning, benefits, and selection
-3. `03_Manual_产品技术手册` - technical parameters, functions, limitations, and cautions
-4. `04_Slides_Technical&Sales` - product story, value, highlights, applications, comparisons, and sales messages
-5. `05_Sales_Reference_成功案例` - customer pain, solution, selection reason, and results
-6. `06_Sales_Fighting_Guide` - competition, objections, responses, and sales strategy
-7. `07_文本资料` - product introductions, releases, and market information
-8. `08_产品图片素材` - reusable visual assets
-9. `09_认证证书` - certificates, standards, regions, holders, and covered MLFBs
-10. `10_FAQ_常见问题集` - questions, answers, symptoms, and resolution steps
+- Node.js dependencies installed from `package-lock.json`
+- Local PM material workspace configured in `config/settings.json`
+- Optional Kimi/OpenAI-compatible model settings for refined cards and generated presentation copy
 
-The first folder is processed first and acts as the product master index. Other folders link to it through normalized MLFB values, but MLFB is not the default card unit for every category.
+For full PPT/PPTX support on Windows:
 
-## Processing
+- Microsoft PowerPoint installed
+- PowerPoint COM automation available for original slide PNG previews
 
-1. Source files remain outside the repository.
-2. Local indexing writes rebuildable JSON under `data/local-json-indexes/`.
-3. Optional KIMI extraction reads local JSON and writes refined results under `data/indexes/`.
-4. The material-card API combines master data, refined theme cards, raw evidence, and image assets.
+WPS Office is not supported by the current native preview renderer.
 
-### PPT/PPTX Operating Flow
+## Core Workflow
 
-For normal use:
+1. Configure the material workspace.
+2. Click **Sync** in the app.
+3. Generate or refresh local JSON indexes.
+4. Optionally run model extraction for refined material cards.
+5. Drag cards into the workspace.
+6. Select a normal layout or a scenario template.
+7. Click generate preview.
+8. Review the HTML PPT preview.
+9. Return to the workspace for edits or export the HTML file.
 
-1. Add one or more PPT/PPTX files to the material folder and click **Sync**.
-2. Click **生成 / 更新本地 JSON**. The application generates:
-   - one `*.raw.json` per presentation
-   - true original-slide PNG previews under `data/slide-previews/`
-   - the lightweight `_folder.catalog.json`
-3. Open the advanced extraction section and run the LLM extraction action. The model reads the `raw.json`, not the original presentation, and generates one validated `*.meta.json` per presentation.
-4. The frontend displays each presentation as a collapsible group containing refined cards and original pages.
+The app saves the workspace draft and the latest generated preview metadata, so returning from preview does not lose the current workspace or last generated output.
 
-The three PPT/PPTX data layers are:
+## Standard Folders
 
-- `*.raw.json`: complete page-level text, lists, tables, notes, image references, page numbers, and evidence IDs
-- `*.meta.json`: validated reusable refined cards
-- `_folder.catalog.json`: lightweight routing metadata for selecting relevant files before bounded context retrieval
+The configured material workspace should contain:
 
-`GET /api/materials/catalog` exposes the routing catalog. `POST /api/materials/context` returns a bounded number of relevant files, cards, and evidence pages so downstream model calls do not read an entire folder unnecessarily.
+1. `01_产品物料表格`
+2. `02_Catalogue_产品样本`
+3. `03_Manual_产品技术手册`
+4. `04_Slides_Technical&Sales`
+5. `05_Sales_Reference_成功案例`
+6. `06_Sales_Fighting_Guide`
+7. `07_文本资料`
+8. `08_产品图片素材`
+9. `09_认证证书`
+10. `10_FAQ_常见问题集`
 
-Refined output is published only after validation. Invalid one-card deck merges or unsupported evidence cannot overwrite the current published index. The application stores a candidate, backs up the prior index before replacement, and may publish an explicitly labelled deterministic fallback.
+Folder behavior is defined in `src/lib/materialProfiles.ts`.
 
-## Standalone Runtime Requirement
+## Local Indexes
 
-Codex is used only to develop and test this application. It is not part of the production material pipeline.
+Generated data lives under `data/` and should not be committed.
 
-On another machine, the application must independently perform:
+Important generated layers:
 
-- local parsing and JSON indexing for every supported folder and file type
-- deterministic card generation where applicable
-- folder-specific LLM extraction and light refinement through the configured model API
-- structural and evidence validation with safe fallback behavior
-- card persistence, page preview generation, and frontend loading
+- `data/local-json-indexes/`: raw local indexes and image manifests
+- `data/indexes/`: refined model output
+- `data/manual-cards/`: deterministic/manual-card pipeline output
+- `data/slide-previews/`: cached PowerPoint-rendered slide PNGs
+- `data/generated-html/`: generated HTML preview files
+- `data/workspace-draft.json`: current workspace draft and latest preview metadata
 
-No production card may require a Codex conversation, Codex-generated intermediate file, or manual intervention by Codex. Without an LLM configuration, deterministic local materials must continue to work; only model-refined cards are unavailable.
+## PPT/PPTX Flow
 
-Format behavior:
+PPT/PPTX files produce:
 
-- Excel product lists become deterministic master-data records without an LLM.
-- PPT/PPTX files are preserved page by page, including text, lists, tables, notes, image references, and slide evidence IDs.
-- Each PPT/PPTX is displayed as an independently collapsible file group containing separate refined-content and original-page sections.
-- Original-page thumbnails are real PNG exports produced by installed Microsoft PowerPoint on Windows and cached under `data/slide-previews/`. They are not reconstructed from extracted JSON.
-- If PowerPoint is unavailable, the app reports that native previews cannot be generated instead of showing a synthetic summary image.
-- MVP preview support requires Microsoft PowerPoint. WPS Office is not supported by the current renderer.
-- PPT/PPTX files do not create a generic raw-document candidate card because their original-page cards already provide the complete source layer.
-- Source changes mark indexes stale; missing source files are treated as orphaned. The folder catalog exposes these states.
-- PDFs use embedded text first and automatically use local Tesseract OCR when no usable text layer exists.
-- Word uses Mammoth for DOCX extraction.
-- Images are indexed as first-class assets.
+- `*.raw.json`: page-level text, lists, tables, notes, image references, slide numbers, and evidence IDs
+- true slide PNG previews under `data/slide-previews/`
+- optional `*.meta.json` refined reusable cards
+- `_folder.catalog.json` for lightweight routing
 
-Folder behavior is defined in `src/lib/materialProfiles.ts`. The complete product and extraction rationale is documented in `AGENTS.md`.
+Original slide pages remain available as draggable cards. Refined content never replaces the original page layer.
+
+### PM Favorite Selection
+
+From an original PPT page preview, the PM can drag a rectangle over a region and click **Favorite**. The app crops that region from the PowerPoint-rendered preview and creates a reusable `ppt_selection` card. This card can be dragged into text or image slots depending on the target layout.
+
+## HTML PPT Generation
+
+The generation API is:
+
+```text
+POST /api/presentations/generate-html
+```
+
+It returns a preview id and URL. Preview files are stored locally under `data/generated-html/`.
+
+Preview route:
+
+```text
+GET /api/presentations/preview/[id]
+GET /api/presentations/preview/[id]?download=1
+```
+
+The generated preview includes toolbar buttons for returning to the workspace and exporting HTML. Export uses the browser save picker when available, with download fallback.
+
+Generation uses:
+
+- workspace pages and slot mapping as the structure source
+- Kimi/OpenAI-compatible model for title and copy rewriting
+- `Slides_Template/template_Business graphic.pptx` as a style library
+- scenario layouts from `Slides_Template/Scenario_Layouts/`
+- deterministic HTML rendering
+- image embedding and light-background removal for ordinary image cards
+
+Text in generated HTML is editable via `contenteditable`.
+
+## Scenario Templates
+
+Scenario templates are defined in:
+
+```text
+src/lib/scenarioTemplateLayouts.ts
+```
+
+Template previews are served by:
+
+```text
+GET /api/assets/scenario-template?id=<templateId>
+```
+
+Current scenario template assets live outside the app folder:
+
+```text
+../Slides_Template/Scenario_Layouts/
+```
+
+Current templates:
+
+- `scenario-product-benefits-1`
+- `scenario-capability-grid-2`
+
+Scenario slots are fixed active regions. Text slots receive rewritten model copy and deterministic fitting. Image slots receive embedded image content. Auto-title slots are generated and are not draggable.
+
+## Image Handling
+
+Image assets are served by:
+
+```text
+GET /api/assets/image
+```
+
+Normal image cards default to transparent PNG output after light-background removal. Use `transparent=0` only when the original background must be preserved.
+
+## Key API Routes
+
+- `POST /api/index/local`: generate or refresh local JSON indexes
+- `GET /api/materials/cards`: load frontend material cards
+- `GET /api/materials/catalog`: read lightweight routing catalogs
+- `POST /api/materials/context`: retrieve bounded context for model calls
+- `POST /api/extract/batch`: run model extraction against local JSON
+- `POST /api/presentations/favorite-selection`: create a PM favorite selection from a PPT page
+- `POST /api/presentations/generate-html`: generate HTML PPT preview
+- `GET /api/presentations/preview/[id]`: view or download generated HTML
+- `GET/POST/DELETE /api/workspace/draft`: persist workspace state
+- `GET/POST /api/settings/llm`: configure model endpoint
+- `GET/POST /api/settings/prompts`: configure per-folder prompts
 
 ## Commands
 
@@ -115,14 +198,13 @@ npm.cmd run index:local -- --folder-prefix 08 --force
 npm.cmd run build
 ```
 
-Use `npm.cmd` on Windows to avoid PowerShell execution-policy issues.
-
 ## Data Safety
 
 Do not commit:
 
 - `config/settings.json`
-- generated `data/` indexes
-- source materials from the PM workspace
-- `.next/` or `node_modules/`
-- API keys or private customer/product files
+- generated `data/` files
+- user source materials
+- API keys
+- `.next/`
+- `node_modules/`

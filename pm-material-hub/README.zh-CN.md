@@ -1,6 +1,6 @@
 # PM Material Hub App 中文说明
 
-这是一个本地优先的 Next.js 应用，用于把产品管理资料转化成可复用、可追溯的物料卡片，并在中间工作区组合成 HTML 风格的演示页面。
+这是 PM Material Hub 的 Next.js 应用。它负责扫描本地产品资料、生成可复用物料卡、提供多页可视化工作区，并生成可编辑的 HTML 版本 PPT 预览和导出文件。
 
 ## 安装与启动
 
@@ -9,7 +9,7 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-使用项目自带启动脚本时，打开：
+打开：
 
 ```text
 http://localhost:3001/
@@ -22,187 +22,187 @@ npm.cmd run build
 npm.cmd run start
 ```
 
-Windows 下建议使用 `npm.cmd`，避免 PowerShell 执行策略拦截 `npm.ps1`。
+Windows 下使用 `npm.cmd`。OCR 和图片处理包含原生依赖，不要跨操作系统复制 `node_modules`。
 
-Linux 环境需要在 Linux 主机重新执行 `npm install`，不要复制 Windows 的 `node_modules`，因为 OCR 等依赖包含原生模块。
+## 运行要求
 
-## 物料工作区
+最低运行要求：
 
-源资料路径配置在：
+- 按 `package-lock.json` 安装 Node.js 依赖
+- 在 `config/settings.json` 中配置本地 PM 物料工作区
+- 可选：配置 Kimi 或 OpenAI-compatible 模型，用于精炼卡片和生成 PPT 文案
 
-```text
-config/settings.json
-```
+完整 PPT/PPTX 支持需要：
 
-标准文件夹顺序：
+- Windows 环境安装 Microsoft PowerPoint
+- PowerPoint COM 自动化可用，用于导出原始 PPT 页面 PNG 预览
 
-1. `01_产品物料表格`：权威 MLFB、SAP、订货、价格、生命周期主数据
-2. `02_Catalogue_产品样本`：产品族、定位、利益点、选型
-3. `03_Manual_产品技术手册`：技术参数、功能、限制、注意事项
-4. `04_Slides_Technical&Sales`：产品故事、价值主张、技术亮点、应用、对比、销售信息
-5. `05_Sales_Reference_成功案例`：客户痛点、解决方案、选择原因、实施结果
-6. `06_Sales_Fighting_Guide`：竞品、异议处理、销售策略
-7. `07_文本资料`：产品介绍、发布信息、市场资料
-8. `08_产品图片素材`：可复用视觉素材
-9. `09_认证证书`：证书、标准、区域、持证方、覆盖 MLFB
-10. `10_FAQ_常见问题集`：问题、答案、现象、解决方法
+当前原生预览渲染器不支持 WPS Office。
 
-`01_产品物料表格` 优先处理，并作为产品主数据索引。其他文件夹可以通过标准化 MLFB 关联主数据，但不是所有文件夹都以 MLFB 作为卡片单位。
+## 核心流程
 
-## 处理流程
+1. 配置物料工作区。
+2. 在应用中点击 **Sync**。
+3. 生成或刷新本地 JSON 索引。
+4. 可选：运行大模型提取，生成精炼物料卡。
+5. 将卡片拖拽到工作区。
+6. 选择普通布局或场景模板。
+7. 点击生成预览。
+8. 检查 HTML PPT 预览。
+9. 需要修改时返回工作区，确认后导出 HTML 文件。
 
-1. 源文件保留在仓库外部。
-2. 本地索引生成到 `data/local-json-indexes/`。
-3. 可选的大模型精提取读取本地 JSON，并输出到 `data/indexes/`。
-4. 物料卡 API 组合主数据、精炼主题卡、原始证据页和图片资产，供前台展示。
+应用会保存工作区草稿和最近一次生成预览的信息，所以从预览页返回后不会丢失当前工作区或上一次生成结果。
 
-## PPT/PPTX 操作流程
+## 标准文件夹
 
-正常使用流程：
+配置的物料工作区应包含：
 
-1. 将一个或多个 PPT/PPTX 文件放入对应物料文件夹，点击 **Sync**。
-2. 点击 **生成 / 更新本地 JSON**，应用会生成：
-   - 每个 PPT/PPTX 一个 `*.raw.json`
-   - 原始 PPT 页面 PNG 预览，缓存到 `data/slide-previews/`
-   - 文件夹级 `_folder.catalog.json`
-3. 打开高级提取区域，运行大模型提取。模型读取 `raw.json`，不直接读取原始 PPT/PPTX。
-4. 前台按每个 PPT/PPTX 文件分组展示：精炼卡片 + 原始 PPT 页面。
+1. `01_产品物料表格`
+2. `02_Catalogue_产品样本`
+3. `03_Manual_产品技术手册`
+4. `04_Slides_Technical&Sales`
+5. `05_Sales_Reference_成功案例`
+6. `06_Sales_Fighting_Guide`
+7. `07_文本资料`
+8. `08_产品图片素材`
+9. `09_认证证书`
+10. `10_FAQ_常见问题集`
 
-PPT/PPTX 三层数据结构：
-
-- `*.raw.json`：页面级文本、列表、表格、备注、图片引用、页码和证据 ID
-- `*.meta.json`：经过校验的可复用精炼卡片
-- `_folder.catalog.json`：轻量路由元数据，用于后续按需选择相关文件和证据页
-
-`GET /api/materials/catalog` 提供路由 catalog。
-
-`POST /api/materials/context` 返回有限数量的相关文件、卡片和证据页，避免后续模型调用一次性读取整个文件夹。
-
-精炼输出必须先校验再发布。无效的大卡片合并、不支持的证据或错误结构不能覆盖当前已发布索引。应用会先保存候选结果，替换前备份旧结果，必要时发布明确标记的确定性兜底结果。
-
-MVP 阶段，PPT 原始页 PNG 预览依赖 Microsoft PowerPoint。当前渲染器不支持 WPS Office。如果没有安装 PowerPoint，raw JSON 仍可生成，但原始页预览会显示不可用。
-
-## 独立运行要求
-
-Codex 只用于开发和测试，不是生产物料生成流程的一部分。
-
-在另一台机器上，应用必须能独立完成：
-
-- 每个支持文件夹和文件类型的本地解析与 JSON 索引
-- 适用场景下的确定性卡片生成
-- 通过配置好的模型 API 进行文件夹级大模型提取和轻度整理
-- 结构校验、证据校验和安全兜底
-- 卡片持久化、页面预览生成和前台加载
-
-任何生产卡片都不应依赖 Codex 对话、Codex 生成的中间文件或 Codex 手工操作。
-
-没有配置大模型时，确定性本地材料仍必须可用；只有模型精炼卡片不可用。
-
-## 格式行为
-
-- Excel 产品列表会生成确定性主数据记录，不需要大模型。
-- PPT/PPTX 按页保留，包括文本、列表、表格、备注、图片引用和 slide evidence ID。
-- 每个 PPT/PPTX 作为独立可折叠文件组展示，组内分为“精炼内容”和“原始页面”。
-- 原始页缩略图是真实 Microsoft PowerPoint PNG 导出，不是 JSON 文本重建图。
-- 未安装 PowerPoint 时，应用明确提示无法生成原生预览，不会用合成摘要图冒充原始页。
-- PPT/PPTX 不生成额外的泛文档 raw card，因为原始页卡片已经完整保留来源。
-- 源文件变更会标记索引 stale；源文件缺失会标记为 orphaned。
-- PDF 优先使用内嵌文本；无可用文本层时自动使用本地 Tesseract OCR。
-- Word 使用 Mammoth 提取 DOCX。
-- 图片作为一等资产索引。
-
-文件夹行为定义在：
+各文件夹行为定义在：
 
 ```text
 src/lib/materialProfiles.ts
 ```
 
-更完整的产品与提取逻辑记录在：
+## 本地索引
+
+生成数据位于 `data/` 下，不应提交 Git。
+
+重要数据层：
+
+- `data/local-json-indexes/`：本地 raw 索引和图片 manifest
+- `data/indexes/`：大模型精炼结果
+- `data/manual-cards/`：技术手册卡片管线输出
+- `data/slide-previews/`：PowerPoint 导出的原始页 PNG 缓存
+- `data/generated-html/`：生成的 HTML 预览文件
+- `data/workspace-draft.json`：当前工作区草稿和最近预览信息
+
+## PPT/PPTX 流程
+
+PPT/PPTX 文件会生成：
+
+- `*.raw.json`：页面级文本、列表、表格、备注、图片引用、页码和证据 ID
+- `data/slide-previews/` 下的真实原始页 PNG 预览
+- 可选的 `*.meta.json` 精炼物料卡
+- `_folder.catalog.json` 轻量路由索引
+
+原始 PPT 页面会一直保留为可拖拽卡片。精炼内容不能替代或隐藏原始页面层。
+
+### PM 精选内容
+
+PM 可以在原始 PPT 单页预览中拖拽框选区域，并点击 **Favorite**。应用会从 PowerPoint 真实预览图中裁剪该区域，生成一个可复用的 `ppt_selection` 卡片。该卡片可以拖入文本槽或图片槽，具体取决于目标布局。
+
+## HTML PPT 生成
+
+生成接口：
 
 ```text
-AGENTS.md
+POST /api/presentations/generate-html
 ```
 
-## 常用 API
+接口返回预览 ID 和 URL。预览文件保存在：
 
 ```text
-POST /api/index/local
+data/generated-html/
 ```
 
-为选中文件夹生成或刷新本地 JSON。
+预览路由：
 
 ```text
-GET /api/materials/cards
+GET /api/presentations/preview/[id]
+GET /api/presentations/preview/[id]?download=1
 ```
 
-把本地索引和精炼索引转成前台物料卡。
+生成预览页包含“返回工作区”和“导出 HTML”按钮。导出优先使用浏览器保存位置选择器，不支持时回退到浏览器下载。
+
+生成逻辑使用：
+
+- 工作区页面和槽位映射作为结构来源
+- Kimi 或 OpenAI-compatible 模型整理标题和文案
+- `Slides_Template/template_Business graphic.pptx` 作为视觉风格库
+- `Slides_Template/Scenario_Layouts/` 下的场景模板
+- 确定性 HTML 渲染器
+- 图片嵌入和普通图片浅色背景透明化
+
+生成 HTML 中的文字使用 `contenteditable`，可以直接编辑。
+
+## 场景模板
+
+场景模板配置在：
+
+```text
+src/lib/scenarioTemplateLayouts.ts
+```
+
+模板预览接口：
+
+```text
+GET /api/assets/scenario-template?id=<templateId>
+```
+
+当前场景模板资产在应用目录外：
+
+```text
+../Slides_Template/Scenario_Layouts/
+```
+
+当前模板：
+
+- `scenario-product-benefits-1`
+- `scenario-capability-grid-2`
+
+场景模板槽位是固定活动区域。文本槽接收模型整理后的文案，并由脚本做最终适配；图片槽接收嵌入图片；自动标题槽由模型和渲染器生成，不作为可拖拽区域。
+
+## 图片处理
+
+图片接口：
 
 ```text
 GET /api/assets/image
 ```
 
-提供本地图片资产和缩略图，包括 TIFF 转换。
+普通图片卡默认会做浅色背景透明化，并输出 PNG。只有需要保留原始背景时才使用 `transparent=0`。
 
-```text
-GET /api/assets/slide-preview
-```
+## 关键 API
 
-提供 PPT/PPTX 原始页 PNG 预览。
-
-```text
-POST /api/extract/batch
-```
-
-对本地 raw JSON 执行大模型精提取。
-
-```text
-GET /api/materials/catalog
-POST /api/materials/context
-```
-
-提供轻量 catalog 和有限上下文读取。
-
-```text
-GET/POST /api/settings/prompts
-```
-
-读取或保存每个文件夹的 prompt。
-
-```text
-GET /api/sync
-```
-
-同步工作区文件夹和文件状态。
+- `POST /api/index/local`：生成或刷新本地 JSON 索引
+- `GET /api/materials/cards`：加载前台物料卡
+- `GET /api/materials/catalog`：读取轻量路由 catalog
+- `POST /api/materials/context`：为模型调用读取有限上下文
+- `POST /api/extract/batch`：基于本地 JSON 运行大模型提取
+- `POST /api/presentations/favorite-selection`：从 PPT 页面生成 PM 精选内容
+- `POST /api/presentations/generate-html`：生成 HTML PPT 预览
+- `GET /api/presentations/preview/[id]`：查看或下载生成的 HTML
+- `GET/POST/DELETE /api/workspace/draft`：保存工作区状态
+- `GET/POST /api/settings/llm`：配置模型
+- `GET/POST /api/settings/prompts`：配置文件夹 prompt
 
 ## 常用命令
 
-生成产品主数据：
-
 ```powershell
+# 产品主数据
 npm.cmd run index:local -- --folder-prefix 01 --force
-```
 
-生成技术手册索引：
-
-```powershell
+# 技术手册
 npm.cmd run index:local -- --folder-prefix 03 --force
-```
 
-生成销售/技术 PPT 索引：
-
-```powershell
+# PPT 资料
 npm.cmd run index:local -- --folder-prefix 04 --force
-```
 
-生成图片 manifest：
-
-```powershell
+# 图片素材
 npm.cmd run index:local -- --folder-prefix 08 --force
-```
 
-构建验证：
-
-```powershell
+# 构建验证
 npm.cmd run build
 ```
 
@@ -211,10 +211,8 @@ npm.cmd run build
 不要提交：
 
 - `config/settings.json`
-- 生成的 `data/` 索引
-- PM 工作区中的源资料
+- 生成的 `data/` 文件
+- 用户源资料
+- API key
 - `.next/`
 - `node_modules/`
-- API key
-- 私有客户或产品文件
-
