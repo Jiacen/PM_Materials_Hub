@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
 import { getWorkspacePath } from '@/lib/fileSystem';
+import { removeLightBackground } from '@/lib/imageBackgroundRemoval';
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.tif', '.tiff', '.bmp']);
 
@@ -20,6 +21,7 @@ export async function GET(req: Request) {
     const folderName = searchParams.get('folderName');
     const fileName = searchParams.get('fileName');
     const mode = searchParams.get('mode') || 'thumb';
+    const transparent = searchParams.get('transparent') !== '0';
 
     if (!folderName || !fileName) {
       return NextResponse.json({ error: 'folderName and fileName are required' }, { status: 400 });
@@ -45,6 +47,16 @@ export async function GET(req: Request) {
     const pipeline = mode === 'full'
       ? image.resize({ width: 1600, withoutEnlargement: true })
       : image.resize({ width: 420, height: 260, fit: 'inside', withoutEnlargement: true });
+
+    if (transparent && !['gif'].includes(String(metadata.format))) {
+      const buffer = await removeLightBackground(pipeline);
+      return new NextResponse(new Uint8Array(buffer), {
+        headers: {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'public, max-age=3600',
+        },
+      });
+    }
 
     const format = shouldConvert ? 'jpeg' : (metadata.format || 'jpeg');
     const buffer = shouldConvert

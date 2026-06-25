@@ -8,6 +8,7 @@ import { ensurePresentationPreviews, getPresentationPreviewPath } from './presen
 import { buildTemplateStyleLibrary, pickTemplateStyles, type TemplateStyle } from './templateStyleLibrary';
 import { getPptSelectionImagePath } from './pptSelectionFavorites';
 import { getScenarioTemplateLayout, type ScenarioTemplateLayout } from './scenarioTemplateLayouts';
+import { removeLightBackground } from './imageBackgroundRemoval';
 
 type DeckItem = {
   id?: string;
@@ -166,6 +167,115 @@ function mergeBullets(primary: string[] | undefined, item: DeckItem, limit = 6) 
   return merged;
 }
 
+function cleanBullet(value: unknown) {
+  return compact(value, 180)
+    .replace(/^[\s•\-*·。]+/, '')
+    .replace(/^Certificate Number\s*[:：]\s*/i, '证书编号：')
+    .replace(/^Report Reference\s*[:：]\s*/i, '报告编号：')
+    .replace(/^Issue Date\s*[:：]\s*/i, '签发日期：')
+    .replace(/^Holder\s*[:：]\s*/i, '持证单位：')
+    .replace(/^Standards?\s*[:：]\s*/i, '认证标准：')
+    .replace(/^Representative samples of Programmable Controllers have been/i, '可编程控制器代表样品已')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function uniqueCleanBullets(values: unknown[], limit: number) {
+  const seen = new Set<string>();
+  const bullets: string[] = [];
+  for (const value of values) {
+    const text = cleanBullet(value);
+    const key = text.replace(/\s+/g, '').toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    bullets.push(text);
+    if (bullets.length >= limit) break;
+  }
+  return bullets;
+}
+
+function splitCompactSentences(value: unknown) {
+  return compact(value, 360)
+    .split(/。|；|;|\n|(?<=\S)\s{2,}/)
+    .map(part => part.trim())
+    .filter(part => part.length >= 4);
+}
+
+function scenarioBullets(block: BlueprintBlock, item: DeckItem, limit: number) {
+  const generatedSource = block.bullets?.length === 1
+    ? splitCompactSentences(block.bullets[0])
+    : (block.bullets || []);
+  const generated = uniqueCleanBullets(generatedSource, limit);
+  if (generated.length) return generated;
+  const sourceBullets = splitBullets(item);
+  const fallbackSource = sourceBullets.length === 1 ? splitCompactSentences(sourceBullets[0]) : sourceBullets;
+  return uniqueCleanBullets(fallbackSource, limit);
+}
+
+function scenarioTextBudget(slot: ScenarioTemplateLayout['slots'][number], templateId?: string) {
+  if (templateId === 'scenario-capability-grid-2') {
+    return {
+      titleMax: slot.id === 'title' ? 20 : 12,
+      bulletCount: 4,
+      bulletMax: 34,
+      paragraphMax: 96,
+    };
+  }
+  return {
+    titleMax: slot.role === 'overview' ? 36 : 38,
+    bulletCount: slot.role === 'bullets' ? 6 : 5,
+    bulletMax: slot.role === 'bullets' ? 64 : 62,
+    paragraphMax: slot.role === 'bullets' ? 160 : 230,
+  };
+}
+
+const SCENARIO_GRID_2_TITLES: Record<string, string> = {
+  text_top_left: '产品信息',
+  text_top_middle: '降低复杂度',
+  text_top_right: '功能比较',
+  text_middle_left: '产品定位及特点',
+  text_middle_right: '产品优势',
+  text_bottom_left: '性价比与可靠性',
+  text_bottom_right: '认证信息',
+};
+
+function isBrokenGeneratedTitle(value: string) {
+  const text = value.trim();
+  if (!text) return true;
+  if (/[\u4e00-\u9fff][，,：:、]?$/.test(text) && text.length <= 4) return true;
+  if (/[\u4e00-\u9fff]\s*$/.test(text) && text.length > 12) return false;
+  if (/^[A-Za-z][A-Za-z\s-]{8,}$/.test(text)) return true;
+  if (/\.(jpg|jpeg|png|pptx?|pdf)$/i.test(text)) return true;
+  return false;
+}
+
+function scenarioSlotTitle(
+  item: EmbeddedItem,
+  block: BlueprintBlock,
+  slot: ScenarioTemplateLayout['slots'][number],
+  templateId?: string,
+) {
+  if (templateId === 'scenario-capability-grid-2' && SCENARIO_GRID_2_TITLES[slot.id]) {
+    return SCENARIO_GRID_2_TITLES[slot.id];
+  }
+  const rawTitle = preferSourceLanguage(block.title, item.title);
+  if (isBrokenGeneratedTitle(rawTitle)) return slot.label || item.title || '内容要点';
+  return rawTitle;
+}
+
+function scenarioPageTitle(page: EmbeddedPage, blueprintPage: BlueprintPage, pageIndex: number) {
+  const generated = preferSourceLanguage(
+    blueprintPage.headline || blueprintPage.title,
+    page.title !== `Page ${pageIndex + 1}` ? page.title : '',
+  );
+  if (page.scenarioTemplate?.id === 'scenario-capability-grid-2') {
+    const source = [generated, page.items[0]?.title, page.items[0]?.body].filter(Boolean).join(' ');
+    const family = source.match(/ET\s*200BL/i)?.[0] || source.match(/IM\d{3,}[-\w\s]*/i)?.[0] || 'ET 200BL';
+    return `${family.replace(/\s+/g, ' ').trim()} 产品价值概览`;
+  }
+  return fitText(generated || page.items[0]?.title || `Page ${pageIndex + 1}`, 32);
+}
+
 function normalizePages(pages: DeckPage[]) {
   return pages
     .filter(page => Array.isArray(page.items) && page.items.length > 0)
@@ -241,11 +351,12 @@ async function imageFileToDataUri(filePath: string, mode: 'image' | 'slide') {
 
   const image = sharp(filePath, { limitInputPixels: false });
   const metadata = await image.metadata();
-  const format = metadata.format === 'png' ? 'png' : 'jpeg';
-  const buffer = format === 'png'
-    ? await image.resize({ width: 1800, withoutEnlargement: true }).png().toBuffer()
-    : await image.resize({ width: 1800, withoutEnlargement: true }).jpeg({ quality: 86 }).toBuffer();
-  return `data:image/${format};base64,${buffer.toString('base64')}`;
+  if (metadata.format !== 'gif') {
+    const buffer = await removeLightBackground(image);
+    return `data:image/png;base64,${buffer.toString('base64')}`;
+  }
+  const buffer = await image.resize({ width: 1800, withoutEnlargement: true }).toBuffer();
+  return `data:image/gif;base64,${buffer.toString('base64')}`;
 }
 
 async function embedAsset(item: DeckItem, warnings: string[]) {
@@ -344,7 +455,7 @@ async function buildBlueprint(
       styleRule: 'Choose a candidateTemplateStyles item for each generated page and return its id as referenceSlideId. Match its layoutFamily, visualTone, hierarchy, image/text balance, and content density.',
       coverageRule: 'Every input item must appear as a block unless it is explicitly merged with another block from the same page. Blocks must use an existing input deckId only.',
       densityRule: 'For module/product cards, keep 4-6 factual bullets. For certificate cards, include certificate number, report reference, issue date, holder, standards, or certification result when present. For image cards, do not include asset-management captions or usage notes.',
-      scenarioFitRule: 'For scenario templates, fill the slot without overflow. overview slots should use one short title plus 4-5 factual bullets. bullets slots should use one short title plus 5-6 concise bullets. Each bullet may wrap to two lines if needed. Do not return sparse one-bullet content.',
+      scenarioFitRule: 'For scenario templates, fill the slot without overflow. Rewrite the dragged card into presentation-ready Chinese. For scenario-capability-grid-2, the renderer owns the section titles; return 3-4 coherent Chinese bullets for each text slot and keep every bullet short enough to fit the fixed box. Use bullet-list style consistently. For larger scenario slots, use one short title plus 4-6 factual bullets. Do not paste raw card text after your rewritten bullets.',
       scenarioQualityRule: 'Before returning JSON, self-check that each scenario slot is directly usable in a PPT: no ellipsis, no placeholder labels, no annotation text, no overflowing copy, no raw background/image pasted into text slots.',
       output: 'Return JSON only. Do not return HTML.',
     },
@@ -404,7 +515,7 @@ The final renderer is deterministic, so return concise JSON with this shape:
 Language rule: the final presentation is for Chinese product managers. Write all user-facing title, kicker, headline, and bullets in Simplified Chinese. Preserve product names, model numbers, certificate numbers, standards, and English brand names exactly when they are factual identifiers. Do not translate Chinese source material into English.
 Reference the selected Slides_Template page as a concrete design pattern, not only as a color palette.
 If an input page has templateId/scenarioTemplate, keep the provided slotId mapping and return blocks for content slots only. Do not assign any card to an auto_title slot; write the page title/headline for that slot through the page title fields. Do not change it to a generic layout.
-For scenario templates, the renderer has fixed slot sizes. Use enough content to make the slot look filled but not crowded: overview slots should contain 4-5 useful factual bullets; benefits/bullets slots should contain 5-6 useful bullets. Each bullet may wrap to two lines if needed. Do not return sparse one-bullet content.
+For scenario templates, the renderer has fixed slot sizes. Rewrite the card content into coherent presentation copy instead of copying raw extraction text. For scenario-capability-grid-2, the renderer will use fixed section titles, so focus on returning 3-4 short Chinese bullets for each text slot. Use bullet-list content consistently; do not return paragraph-only content. For larger scenario slots, use enough content to make the slot look filled but not crowded: overview slots should contain 4-5 useful factual bullets; benefits/bullets slots should contain 5-6 useful bullets. Do not paste raw card text after the rewritten bullets.
 Before returning JSON, check your own output as if it will be shown directly to the PM. Do not use ellipsis. If text is too long, rewrite it shorter instead of ending with "...".
 If the user asks for a dark background, every non-original-PPT generated page MUST use visualTone "dark".
 Represent every workspace card. Do not drop low-level evidence cards such as certifications, parameters, comparisons, or customer cases.
@@ -576,24 +687,31 @@ function scenarioSlotStyle(slot: ScenarioTemplateLayout['slots'][number]) {
   return `left:${x * 100}%;top:${y * 100}%;width:${width * 100}%;height:${height * 100}%;background:${slot.backgroundColor};`;
 }
 
-function scenarioSlotTextFitted(item: EmbeddedItem, block: BlueprintBlock, role: string) {
-  const title = preferSourceLanguage(block.title, item.title);
-  const bullets = mergeBullets(block.bullets, item, role === 'bullets' ? 6 : 5);
-  const shortTitle = fitText(title, role === 'overview' ? 36 : 38);
+function scenarioSlotTextFitted(
+  item: EmbeddedItem,
+  block: BlueprintBlock,
+  slot: ScenarioTemplateLayout['slots'][number],
+  templateId?: string,
+) {
+  const role = slot.role;
+  const budget = scenarioTextBudget(slot, templateId);
+  const title = scenarioSlotTitle(item, block, slot, templateId);
+  const bullets = scenarioBullets(block, item, budget.bulletCount);
+  const shortTitle = fitText(title, budget.titleMax);
 
   if (role === 'bullets') {
-    return `<h3 contenteditable="true">${escapeHtml(shortTitle || '客户收益')}</h3>${bullets.length ? `<ul contenteditable="true">${bullets.slice(0, 6).map(bullet => `<li>${escapeHtml(fitText(bullet, 64))}</li>`).join('')}</ul>` : ''}`;
+    return `<h3 contenteditable="true">${escapeHtml(shortTitle || '客户收益')}</h3>${bullets.length ? `<ul contenteditable="true">${bullets.map(bullet => `<li>${escapeHtml(fitText(bullet, budget.bulletMax))}</li>`).join('')}</ul>` : ''}`;
   }
 
   if (role === 'overview') {
-    if (bullets.length >= 2) {
-      return `<h3 contenteditable="true">${escapeHtml(shortTitle)}</h3><ul contenteditable="true">${bullets.slice(0, 5).map(bullet => `<li>${escapeHtml(fitText(bullet, 62))}</li>`).join('')}</ul>`;
+    if (bullets.length) {
+      return `<h3 contenteditable="true">${escapeHtml(shortTitle)}</h3><ul contenteditable="true">${bullets.map(bullet => `<li>${escapeHtml(fitText(bullet, budget.bulletMax))}</li>`).join('')}</ul>`;
     }
-    const paragraph = fitText(item.body || bullets.join(' '), 230);
-    return `<h3 contenteditable="true">${escapeHtml(shortTitle)}</h3>${paragraph ? `<p contenteditable="true">${escapeHtml(paragraph)}</p>` : ''}`;
+    const fallback = splitCompactSentences(block.bullets?.join(' ') || item.body).slice(0, budget.bulletCount);
+    return `<h3 contenteditable="true">${escapeHtml(shortTitle)}</h3>${fallback.length ? `<ul contenteditable="true">${fallback.map(bullet => `<li>${escapeHtml(fitText(bullet, budget.bulletMax))}</li>`).join('')}</ul>` : ''}`;
   }
 
-  const paragraph = fitText(item.body || bullets.join(' '), 180);
+  const paragraph = fitText(block.bullets?.join(' ') || item.body || bullets.join(' '), budget.paragraphMax);
   return `<h3 contenteditable="true">${escapeHtml(shortTitle)}</h3>${paragraph ? `<p contenteditable="true">${escapeHtml(paragraph)}</p>` : ''}`;
 }
 
@@ -604,7 +722,12 @@ function renderScenarioTitleSlot(slot: ScenarioTemplateLayout['slots'][number], 
   </div>`;
 }
 
-function renderScenarioSlot(slot: ScenarioTemplateLayout['slots'][number], item: EmbeddedItem | undefined, block: BlueprintBlock | undefined) {
+function renderScenarioSlot(
+  slot: ScenarioTemplateLayout['slots'][number],
+  item: EmbeddedItem | undefined,
+  block: BlueprintBlock | undefined,
+  templateId?: string,
+) {
   const style = scenarioSlotStyle(slot);
   if (!item) {
     return `<div class="scenario-slot scenario-slot-empty" style="${style}"></div>`;
@@ -617,7 +740,7 @@ function renderScenarioSlot(slot: ScenarioTemplateLayout['slots'][number], item:
   }
 
   return `<div class="scenario-slot scenario-slot-text scenario-slot-${escapeHtml(slot.role)}" style="${style}">
-    ${scenarioSlotTextFitted(item, block || { deckId: item.deckId, title: item.title, bullets: splitBullets(item) }, slot.role)}
+    ${scenarioSlotTextFitted(item, block || { deckId: item.deckId, title: item.title, bullets: splitBullets(item) }, slot, templateId)}
   </div>`;
 }
 
@@ -640,17 +763,14 @@ function renderScenarioPage(page: EmbeddedPage, blueprintPage: BlueprintPage, pa
       });
     }
   }
-  const autoTitle = preferSourceLanguage(
-    blueprintPage.headline || blueprintPage.title,
-    page.title !== `Page ${pageIndex + 1}` ? page.title : (page.items[0]?.title || `Page ${pageIndex + 1}`),
-  );
+  const autoTitle = scenarioPageTitle(page, blueprintPage, pageIndex);
 
   return `<section class="slide scenario-slide" data-template-id="${escapeHtml(page.scenarioTemplate.id)}">
     <img class="scenario-bg" src="${page.scenarioBackgroundDataUri}" alt="${escapeHtml(page.scenarioTemplate.label)}">
     ${page.scenarioTemplate.slots.map(slot => {
       if (slot.role === 'auto_title') return renderScenarioTitleSlot(slot, autoTitle);
       const placed = itemBySlot.get(slot.id);
-      return renderScenarioSlot(slot, placed?.item, placed?.block);
+      return renderScenarioSlot(slot, placed?.item, placed?.block, page.scenarioTemplate?.id);
     }).join('')}
   </section>`;
 }
@@ -705,8 +825,8 @@ function renderPageV2(page: EmbeddedPage, blueprintPage: BlueprintPage, pageInde
 
 function renderHtml(title: string, pages: EmbeddedPage[], blueprint: GenerationBlueprint, template: TemplateReference, finalizedBy: string, warnings: string[], forceDark = false) {
   const css = `:root{--teal:#009999;--ink:#172b36;--muted:#64727c;--line:#d7e1e4;--soft:#eef3f4;--accent:#f4a100}*{box-sizing:border-box}body{margin:0;background:#dfe7ea;color:var(--ink);font-family:Arial,"Microsoft YaHei",sans-serif}.preview-toolbar{position:sticky;top:0;z-index:50;height:54px;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 22px;box-shadow:0 6px 18px rgba(18,42,52,.08)}.preview-toolbar strong{font-size:14px}.preview-toolbar span{font-size:12px;color:var(--muted);margin-left:10px}.toolbar-actions{display:flex;gap:10px}.toolbar-actions a,.toolbar-actions button{border:1px solid var(--line);border-radius:6px;background:white;color:var(--ink);font-size:13px;font-weight:700;padding:8px 13px;text-decoration:none;cursor:pointer}.toolbar-actions button{background:var(--teal);border-color:var(--teal);color:white}.deck{width:100%;padding-top:10px}.slide{width:1280px;height:720px;margin:28px auto;background:#fbfdfd;position:relative;overflow:hidden;box-shadow:0 18px 45px rgba(18,42,52,.18);padding:42px 52px;page-break-after:always}.slide:before{content:"";position:absolute;left:0;top:0;width:9px;height:100%;background:var(--teal)}.slide-header{display:flex;justify-content:space-between;gap:32px;align-items:flex-start;margin-bottom:28px}.kicker{font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:var(--teal);font-weight:700}.slide-header h2{margin:6px 0 0;font-size:34px;line-height:1.12;max-width:850px}.slide-header span{font-size:13px;color:var(--muted);max-width:260px;text-align:right}.content-grid{height:560px;display:grid;gap:18px}.layout-single{grid-template-columns:1fr}.layout-two-columns{grid-template-columns:1fr 1fr}.layout-left-main-right-stack{grid-template-columns:1.18fr .82fr;grid-template-rows:1fr 1fr}.layout-left-main-right-stack>:first-child{grid-row:1/3}.layout-two-rows{grid-template-rows:1fr 1fr}.layout-four-grid{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}.block,.image-block{border:1px solid var(--line);background:white;padding:22px;min-height:0;overflow:hidden;display:flex;flex-direction:column}.block.is-hero{border-top:5px solid var(--teal)}.block-meta{font-size:12px;color:var(--teal);font-weight:700;text-transform:uppercase;margin-bottom:8px}h3{font-size:24px;line-height:1.18;margin:0 0 10px}p{font-size:15px;line-height:1.5;color:#334650;margin:0 0 12px}ul{margin:4px 0 0;padding-left:20px}li{font-size:15px;line-height:1.45;margin:6px 0}footer{margin-top:auto;padding-top:12px;font-size:11px;color:#829098}.image-block{display:grid;grid-template-columns:1.1fr .9fr;gap:18px;align-items:center}.image-frame{height:100%;min-height:210px;background:var(--soft);display:flex;align-items:center;justify-content:center}.image-frame img{max-width:100%;max-height:100%;object-fit:contain}.slide-image-block{position:absolute;inset:0;background:#111;display:flex;align-items:center;justify-content:center}.slide-image-block img{width:100%;height:100%;object-fit:contain}.slide-native{padding:0}.slide-native:before{display:none}.missing-image{color:#9aa6ad;font-size:18px}.notes{width:1280px;margin:0 auto 28px;color:#667782;font-size:12px}@media print{.preview-toolbar{display:none}body{background:white}.deck{padding-top:0}.slide{margin:0;box-shadow:none}}`;
-  const styleCss = `.slide.tone-dark{background:#101820;color:#f5f8f9}.slide.tone-dark:after{content:"";position:absolute;right:-120px;top:-160px;width:420px;height:420px;background:rgba(0,153,153,.2);transform:rotate(24deg)}.slide.tone-dark .slide-header h2,.slide.tone-dark h3{color:#fff}.slide.tone-dark p,.slide.tone-dark li{color:#d7e1e4}.slide.tone-dark .block,.slide.tone-dark .image-block{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.15)}.slide.tone-dark .image-frame{background:rgba(255,255,255,.08)}.layout-product-showcase{grid-template-columns:1.05fr .95fr}.layout-product-showcase .image-block{grid-column:1/3;grid-template-columns:1fr .95fr;padding:30px}.layout-image-focus{grid-template-columns:1fr}.layout-image-focus .image-block{grid-template-columns:1.3fr .7fr}.layout-case-story{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}.layout-case-story .block:first-child{grid-column:1/3;background:var(--ink);color:white}.layout-case-story .block:first-child h3,.layout-case-story .block:first-child li{color:white}.layout-section-overview{grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr)}.layout-headline-bullets{grid-template-columns:1fr 1fr}.block-meta,footer,.notes{display:none!important}.block{justify-content:flex-start}.block h3{font-size:26px}.block ul{padding-left:0;list-style:none}.block li{position:relative;padding-left:20px}.block li:before{content:"";position:absolute;left:0;top:.68em;width:7px;height:7px;background:var(--teal)}.slide.tone-dark .block li:before{background:#22d3d3}.scenario-slide{padding:0;background:#010226}.scenario-slide:before{display:none}.scenario-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.scenario-slot{position:absolute;z-index:2;overflow:hidden}.scenario-slot-image{display:flex;align-items:center;justify-content:center}.scenario-slot-image img{max-width:100%;max-height:100%;object-fit:contain}.scenario-slot-text{padding:14px 16px;color:#fff}.scenario-slot-text h2{font-size:28px;line-height:1.16;margin:0;font-weight:800;color:#fff}.scenario-slot-text h3{font-size:22px;line-height:1.18;margin:0 0 10px;font-weight:800;color:#00ffcf}.scenario-slot-text p{font-size:20px;line-height:1.26;margin:0;color:#fff}.scenario-slot-text ul{margin:0;padding-left:20px}.scenario-slot-text li{font-size:16px;line-height:1.34;margin:6px 0;color:#fff}.scenario-slot-bullets{color:#03141b}.scenario-slot-bullets h3,.scenario-slot-bullets p,.scenario-slot-bullets li{color:#03141b}.scenario-slot-bullets h3{font-size:24px}.scenario-slot-overview p{font-size:20px}.scenario-slot-empty{display:block}`;
-  const scenarioFitCss = `[contenteditable]{outline:none}[contenteditable]:focus{outline:none}.scenario-slot-text{display:flex;flex-direction:column;justify-content:flex-start;word-break:break-word}.scenario-slot-overview{padding:18px 18px}.scenario-slot-overview h3{font-size:20px;line-height:1.12;margin-bottom:8px}.scenario-slot-overview p{font-size:15px;line-height:1.23;margin:0}.scenario-slot-overview ul{padding-left:18px;margin:0}.scenario-slot-overview li{font-size:14.5px;line-height:1.22;margin:3px 0;white-space:normal}.scenario-slot-bullets{padding:24px 42px}.scenario-slot-bullets h3{font-size:22px;line-height:1.12;margin-bottom:10px;color:#03141b}.scenario-slot-bullets ul{padding-left:18px;margin:0}.scenario-slot-bullets li{font-size:14.5px;line-height:1.22;margin:4px 0;color:#03141b;white-space:normal}.scenario-slot-auto_title{padding:0 0 0 0;justify-content:center}.scenario-slot-auto_title h2{font-size:28px;line-height:1.12}.scenario-slot-image{padding:0}.scenario-slot-image img{width:100%;height:100%;object-fit:contain}`;
+  const styleCss = `.slide.tone-dark{background:#101820;color:#f5f8f9}.slide.tone-dark:after{content:"";position:absolute;right:-120px;top:-160px;width:420px;height:420px;background:rgba(0,153,153,.2);transform:rotate(24deg)}.slide.tone-dark .slide-header h2,.slide.tone-dark h3{color:#fff}.slide.tone-dark p,.slide.tone-dark li{color:#d7e1e4}.slide.tone-dark .block,.slide.tone-dark .image-block{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.15)}.slide.tone-dark .image-frame{background:transparent}.layout-product-showcase{grid-template-columns:1.05fr .95fr}.layout-product-showcase .image-block{grid-column:1/3;grid-template-columns:1fr .95fr;padding:30px}.layout-image-focus{grid-template-columns:1fr}.layout-image-focus .image-block{grid-template-columns:1.3fr .7fr}.layout-case-story{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}.layout-case-story .block:first-child{grid-column:1/3;background:var(--ink);color:white}.layout-case-story .block:first-child h3,.layout-case-story .block:first-child li{color:white}.layout-section-overview{grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr)}.layout-headline-bullets{grid-template-columns:1fr 1fr}.block-meta,footer,.notes{display:none!important}.block{justify-content:flex-start}.block h3{font-size:26px}.block ul{padding-left:0;list-style:none}.block li{position:relative;padding-left:20px}.block li:before{content:"";position:absolute;left:0;top:.68em;width:7px;height:7px;background:var(--teal)}.slide.tone-dark .block li:before{background:#22d3d3}.scenario-slide{padding:0;background:#010226}.scenario-slide:before{display:none}.scenario-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.scenario-slot{position:absolute;z-index:2;overflow:hidden}.scenario-slot-image{display:flex;align-items:center;justify-content:center;background:transparent!important}.scenario-slot-image img{max-width:100%;max-height:100%;object-fit:contain}.scenario-slot-text{padding:14px 16px;color:#fff}.scenario-slot-text h2{font-size:28px;line-height:1.16;margin:0;font-weight:800;color:#fff}.scenario-slot-text h3{font-size:22px;line-height:1.18;margin:0 0 10px;font-weight:800;color:#00ffcf}.scenario-slot-text p{font-size:20px;line-height:1.26;margin:0;color:#fff}.scenario-slot-text ul{margin:0;padding-left:20px}.scenario-slot-text li{font-size:16px;line-height:1.34;margin:6px 0;color:#fff}.scenario-slot-bullets{color:#03141b}.scenario-slot-bullets h3,.scenario-slot-bullets p,.scenario-slot-bullets li{color:#03141b}.scenario-slot-bullets h3{font-size:24px}.scenario-slot-overview p{font-size:20px}.scenario-slot-empty{display:block}`;
+  const scenarioFitCss = `[contenteditable]{outline:none}[contenteditable]:focus{outline:none}.scenario-slot-text{display:flex;flex-direction:column;justify-content:flex-start;word-break:break-word}.scenario-slot-overview{padding:18px 18px}.scenario-slot-overview h3{font-size:20px;line-height:1.12;margin-bottom:8px}.scenario-slot-overview p{font-size:15px;line-height:1.23;margin:0}.scenario-slot-overview ul{padding-left:18px;margin:0}.scenario-slot-overview li{font-size:14.5px;line-height:1.22;margin:3px 0;white-space:normal}.scenario-slot-bullets{padding:24px 42px}.scenario-slot-bullets h3{font-size:22px;line-height:1.12;margin-bottom:10px;color:#03141b}.scenario-slot-bullets ul{padding-left:18px;margin:0}.scenario-slot-bullets li{font-size:14.5px;line-height:1.22;margin:4px 0;color:#03141b;white-space:normal}.scenario-slot-auto_title{padding:0 0 0 0;justify-content:center}.scenario-slot-auto_title h2{font-size:28px;line-height:1.12}.scenario-slot-image{padding:0}.scenario-slot-image img{width:100%;height:100%;object-fit:contain}.scenario-slide[data-template-id="scenario-capability-grid-2"] .scenario-slot-overview{padding:14px 16px}.scenario-slide[data-template-id="scenario-capability-grid-2"] .scenario-slot-overview h3{font-size:17px;line-height:1.1;margin-bottom:6px}.scenario-slide[data-template-id="scenario-capability-grid-2"] .scenario-slot-overview ul{padding-left:15px}.scenario-slide[data-template-id="scenario-capability-grid-2"] .scenario-slot-overview li{font-size:12.4px;line-height:1.15;margin:2px 0}.scenario-slide[data-template-id="scenario-capability-grid-2"] .scenario-slot-overview p{font-size:12.6px;line-height:1.18}`;
   const pageHtml = pages.map((page, index) => renderPageV2(page, blueprint.pages?.[index] || {}, index, forceDark)).join('\n');
   const warningHtml = warnings.length ? `<div class="notes">Generated by: ${escapeHtml(finalizedBy)} · Template: ${escapeHtml(template.fileName)} · ${warnings.map(escapeHtml).join(' · ')}</div>` : `<div class="notes">Generated by: ${escapeHtml(finalizedBy)} · Template: ${escapeHtml(template.fileName)}</div>`;
   const script = `<script>

@@ -841,6 +841,13 @@ export default function Home() {
     return 'bg-amber-50 text-amber-700 border-amber-100';
   };
 
+  const displayAssetUrl = (item: any) => {
+    const raw = `${item?.assetUrl || ''}`;
+    if (!raw) return raw;
+    const separator = raw.includes('?') ? '&' : '?';
+    return `${raw}${separator}mode=full${item.type === 'image' ? '&transparent=1' : ''}`;
+  };
+
   const openCardDetail = (card: any) => {
     const firstItems = (card.sections || []).flatMap((section: any) =>
       section.items.map((_: string, index: number) => `${section.id}:${index}`)
@@ -1129,7 +1136,7 @@ export default function Home() {
             </div>
             {(item.type === 'image' || item.type === 'slide' || item.type === 'ppt_selection') && item.assetUrl ? (
               <div className="mt-3 min-h-0 flex-1 rounded-md bg-slate-50 overflow-hidden flex items-center justify-center">
-                <img src={`${item.assetUrl}&mode=full`} alt={item.title} className="max-h-full max-w-full object-contain" />
+                <img src={displayAssetUrl(item)} alt={item.title} className="max-h-full max-w-full object-contain" />
               </div>
             ) : (
               <p className="mt-3 text-xs leading-relaxed text-slate-500 line-clamp-5">{item.body}</p>
@@ -1208,7 +1215,7 @@ export default function Home() {
             </div>
             {(item.type === 'image' || item.type === 'slide' || item.type === 'ppt_selection') && item.assetUrl ? (
               <div className="mt-2 min-h-0 flex-1 overflow-hidden rounded bg-white/10 flex items-center justify-center">
-                <img src={`${item.assetUrl}&mode=full`} alt={item.title} className="max-h-full max-w-full object-contain" />
+                <img src={displayAssetUrl(item)} alt={item.title} className="max-h-full max-w-full object-contain" />
               </div>
             ) : (
               <p className="mt-1 text-[11px] leading-relaxed text-white/80 line-clamp-5">{item.body}</p>
@@ -2097,7 +2104,7 @@ export default function Home() {
                         {(item.type === 'image' || item.type === 'slide' || item.type === 'ppt_selection') && item.assetUrl ? (
                           <div className="grid grid-cols-[minmax(220px,360px)_1fr] gap-5 items-center">
                             <div className="aspect-[4/3] rounded-md border border-slate-100 bg-slate-50 overflow-hidden flex items-center justify-center">
-                              <img src={`${item.assetUrl}&mode=full`} alt={item.title} className="max-h-full max-w-full object-contain" />
+                <img src={displayAssetUrl(item)} alt={item.title} className="max-h-full max-w-full object-contain" />
                             </div>
                             <div>
                               <h3 className="text-xl font-semibold text-slate-800">{item.title}</h3>
