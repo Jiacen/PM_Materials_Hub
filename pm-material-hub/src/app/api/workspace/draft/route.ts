@@ -8,16 +8,37 @@ function ensureDraftDir() {
   fs.mkdirSync(path.dirname(DRAFT_PATH), { recursive: true });
 }
 
+function sanitizeGeneratedPreview(value: any) {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    fileName: value.fileName || 'presentation.html',
+    previewUrl: value.previewUrl || '',
+    finalizedBy: value.finalizedBy || '',
+    warnings: Array.isArray(value.warnings) ? value.warnings.slice(0, 20) : [],
+    generatedAt: value.generatedAt || '',
+    signature: value.signature || '',
+  };
+}
+
 export async function GET() {
   try {
     if (!fs.existsSync(DRAFT_PATH)) {
       return NextResponse.json({ success: true, draft: null });
     }
 
-    return NextResponse.json({
-      success: true,
-      draft: JSON.parse(fs.readFileSync(DRAFT_PATH, 'utf8')),
-    });
+    const raw = fs.readFileSync(DRAFT_PATH, 'utf8');
+    try {
+      return NextResponse.json({
+        success: true,
+        draft: JSON.parse(raw),
+      });
+    } catch {
+      return NextResponse.json({
+        success: true,
+        draft: null,
+        warning: 'Workspace draft is invalid and was ignored.',
+      });
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to load workspace draft';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
@@ -34,7 +55,7 @@ export async function POST(req: Request) {
       deckPages: body.deckPages || [],
       activePageId: body.activePageId || '',
       generationInstruction: body.generationInstruction || '',
-      generatedHtmlPreview: body.generatedHtmlPreview || null,
+      generatedHtmlPreview: sanitizeGeneratedPreview(body.generatedHtmlPreview),
     }, null, 2), 'utf8');
 
     return NextResponse.json({ success: true });

@@ -21,11 +21,59 @@ function extractTitle(html: string) {
   return title || 'presentation';
 }
 
+function exportScript(fileName: string) {
+  return `<script>
+    async function saveCurrentPreview() {
+      const fileName = ${JSON.stringify(fileName)};
+      const downloadUrl = window.location.pathname + '?download=1';
+      try {
+        const response = await fetch(downloadUrl, { cache: 'no-store' });
+        if (!response.ok) throw new Error('download failed');
+        const blob = await response.blob();
+
+        if ('showSaveFilePicker' in window) {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: fileName,
+            types: [{
+              description: 'HTML Presentation',
+              accept: { 'text/html': ['.html'] }
+            }]
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          alert('导出成功：HTML 文件已保存到你选择的位置。');
+          return;
+        }
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        alert('浏览器已开始下载。若没有弹出保存位置选择框，请在浏览器下载设置中开启“每次下载前询问保存位置”。');
+      } catch (error) {
+        if (error && error.name === 'AbortError') {
+          alert('已取消导出。');
+          return;
+        }
+        alert('导出失败，请稍后重试。');
+      }
+    }
+  </script>`;
+}
+
 function withServerDownload(html: string) {
-  return html.replace(
+  const fileName = `${extractTitle(html)}.html`;
+  const patched = html.replace(
     /onclick="downloadCurrentPreview\(\)"/g,
-    `onclick="window.location.href=window.location.pathname+'?download=1'"`,
+    `onclick="saveCurrentPreview()"`,
   );
+  if (patched.includes('function saveCurrentPreview()')) return patched;
+  return patched.replace('</body>', `${exportScript(fileName)}\n</body>`);
 }
 
 export async function GET(req: Request, { params }: Params) {

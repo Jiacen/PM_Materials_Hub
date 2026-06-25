@@ -1,5 +1,6 @@
 ﻿"use client";
 import React, { useState, useEffect, useRef } from "react";
+import { SCENARIO_TEMPLATE_LAYOUTS, getScenarioTemplateLayout } from "@/lib/scenarioTemplateLayouts";
 
 const STANDARD_FOLDERS = [
   "01_产品物料表格",
@@ -46,6 +47,7 @@ const PAGE_LAYOUTS = [
 ] as const;
 
 type PageLayoutId = typeof PAGE_LAYOUTS[number]['id'];
+type WorkspaceMode = 'generic' | 'scenario';
 
 export default function Home() {
   const [isSyncing, setIsSyncing] = useState(false);
@@ -418,6 +420,8 @@ export default function Home() {
         id: page.id,
         title: page.title,
         layout: page.layout,
+        templateId: page.templateId,
+        templateSourceKey: page.templateSourceKey,
         items: page.items.map((item: any) => ({
           deckId: item.deckId,
           id: item.id,
@@ -432,16 +436,52 @@ export default function Home() {
       })),
   });
 
-  const downloadHtmlPreview = (preview: any) => {
-    const blob = new Blob([preview.html], { type: 'text/html;charset=utf-8' });
+  const saveBlobAsHtml = async (blob: Blob, fileName: string) => {
+    if ('showSaveFilePicker' in window) {
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{
+            description: 'HTML Presentation',
+            accept: { 'text/html': ['.html'] },
+          }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        alert("导出成功：HTML 文件已保存到你选择的位置。");
+        return;
+      } catch (error: any) {
+        if (error?.name === 'AbortError') {
+          alert("已取消导出。");
+          return;
+        }
+        throw error;
+      }
+    }
+
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = preview.fileName || 'presentation.html';
+    link.download = fileName;
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
+    alert("浏览器已开始下载。若没有弹出保存位置选择框，请在浏览器下载设置中开启“每次下载前询问保存位置”。");
+  };
+
+  const downloadHtmlPreview = async (preview: any) => {
+    const fileName = preview.fileName || 'presentation.html';
+    if (preview.previewUrl) {
+      const res = await fetch(`${preview.previewUrl}?download=1`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Download failed');
+      await saveBlobAsHtml(await res.blob(), fileName);
+      return;
+    }
+
+    const blob = new Blob([preview.html], { type: 'text/html;charset=utf-8' });
+    await saveBlobAsHtml(blob, fileName);
   };
 
   const openHtmlPreview = (preview: any) => {
@@ -480,7 +520,6 @@ export default function Home() {
       }
 
       const preview = {
-        html: data.html,
         fileName: data.fileName || 'presentation.html',
         previewUrl: data.previewUrl,
         finalizedBy: data.finalizedBy,
@@ -497,7 +536,19 @@ export default function Home() {
     }
   };
 
-  const handleExportHtml = () => {
+  const handleOpenGeneratedPreview = () => {
+    if (!generatedHtmlPreview) {
+      alert("还没有可查看的预览。请先点击“生成预览”。");
+      return;
+    }
+    if (!generatedHtmlPreview.previewUrl && !generatedHtmlPreview.html) {
+      alert("这条预览记录缺少可打开的文件链接，请重新生成预览。");
+      return;
+    }
+    openHtmlPreview(generatedHtmlPreview);
+  };
+
+  const handleExportHtml = async () => {
     if (!generatedHtmlPreview) {
       alert("请先点击“生成预览”，确认效果后再导出 HTML。");
       return;
@@ -506,7 +557,15 @@ export default function Home() {
       alert("工作区内容或生成要求已变化，请重新生成预览后再导出。");
       return;
     }
-    downloadHtmlPreview(generatedHtmlPreview);
+    if (!generatedHtmlPreview.previewUrl && !generatedHtmlPreview.html) {
+      alert("这条预览记录缺少可导出的文件链接，请重新生成预览。");
+      return;
+    }
+    try {
+      await downloadHtmlPreview(generatedHtmlPreview);
+    } catch (error) {
+      alert("导出失败，请重新打开预览页或重新生成预览后再试。");
+    }
   };
 
   const isPreviewCurrent = generatedHtmlPreview?.signature === getGenerationSignature();
@@ -522,12 +581,19 @@ export default function Home() {
   const getLayout = (layoutId: PageLayoutId | string) =>
     PAGE_LAYOUTS.find(layout => layout.id === layoutId) || PAGE_LAYOUTS[0];
 
+  const getPageMode = (page: any): WorkspaceMode => page?.templateId ? 'scenario' : 'generic';
+
+  const getPageSlots = (page: any) => {
+    const scenarioTemplate = getScenarioTemplateLayout(page?.templateId);
+    return scenarioTemplate?.slots.filter(slot => slot.role !== 'auto_title').map(slot => slot.id) || getLayout(page?.layout || 'single').slots;
+  };
+
   const addCardToDeck = (card: any, requestedSlotId?: string) => {
     setDeckPages(prev => prev.map(page => {
       if (page.id !== activePageId) return page;
-      const layout = getLayout(page.layout);
+      const slots = getPageSlots(page);
       const occupiedSlots = new Set(page.items.map((item: any) => item.slotId).filter(Boolean));
-      const slotId = requestedSlotId || layout.slots.find(slot => !occupiedSlots.has(slot)) || null;
+      const slotId = requestedSlotId || slots.find(slot => !occupiedSlots.has(slot)) || null;
       return {
         ...page,
         items: [
@@ -601,8 +667,8 @@ export default function Home() {
 
   const handleDropToDeck = (event: React.DragEvent<HTMLDivElement>) => {
     const occupiedSlots = new Set(activePage?.items?.map((item: any) => item.slotId).filter(Boolean) || []);
-    const targetSlot = getLayout(activePage?.layout || 'single').slots.find(slot => !occupiedSlots.has(slot))
-      || getLayout(activePage?.layout || 'single').slots[0];
+    const slots = getPageSlots(activePage);
+    const targetSlot = slots.find(slot => !occupiedSlots.has(slot)) || slots[0];
     handleDropToSlot(event, targetSlot);
   };
 
@@ -633,6 +699,27 @@ export default function Home() {
       return {
         ...page,
         layout,
+        templateId: null,
+        items: page.items.map((item: any, index: number) => ({
+          ...item,
+          slotId: index < slots.length ? slots[index] : null,
+        })),
+      };
+    }));
+  };
+
+  const changeActivePageScenarioTemplate = (templateId: string) => {
+    const template = getScenarioTemplateLayout(templateId);
+    if (!template) return;
+    const slots = template.slots.filter(slot => slot.role !== 'auto_title').map(slot => slot.id);
+    setDeckPages(prev => prev.map(page => {
+      if (page.id !== activePageId) return page;
+      return {
+        ...page,
+        layout: 'scenario',
+        templateId,
+        templateSourceKey: template.sourceKey,
+        templatePptFile: template.pptFile,
         items: page.items.map((item: any, index: number) => ({
           ...item,
           slotId: index < slots.length ? slots[index] : null,
@@ -951,6 +1038,8 @@ export default function Home() {
   );
 
   const activeLayout = getLayout(activePage?.layout || 'single');
+  const activeScenarioTemplate = getScenarioTemplateLayout(activePage?.templateId);
+  const activeWorkspaceMode = getPageMode(activePage);
   const unplacedItems = activePage?.items?.filter((item: any) => !item.slotId) || [];
 
   const layoutGridClass = (layoutId: string) => {
@@ -967,6 +1056,8 @@ export default function Home() {
   };
 
   const slotLabel = (slotId: string) => {
+    const scenarioSlot = activeScenarioTemplate?.slots.find(slot => slot.id === slotId);
+    if (scenarioSlot) return scenarioSlot.label;
     const labels: Record<string, string> = {
       main: '主内容',
       left: '左侧',
@@ -1033,7 +1124,7 @@ export default function Home() {
                 onClick={() => removeDeckItem(item.deckId)}
                 className="shrink-0 text-xs text-slate-400 hover:text-red-500"
               >
-                绉婚櫎
+                移除
               </button>
             </div>
             {(item.type === 'image' || item.type === 'slide' || item.type === 'ppt_selection') && item.assetUrl ? (
@@ -1048,6 +1139,85 @@ export default function Home() {
           <div className="h-full min-h-[120px] flex flex-col items-center justify-center text-center p-4">
             <span className="text-xs font-semibold text-slate-500">{slotLabel(slotId)}</span>
             <span className="mt-1 text-[11px] text-slate-400">拖入物料卡片</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderScenarioWorkspaceSlot = (slot: any) => {
+    const item = activePage?.items?.find((candidate: any) => candidate.slotId === slot.id);
+    const isDropTarget = activeDropSlot === slot.id;
+    const style = {
+      left: `${slot.x * 100}%`,
+      top: `${slot.y * 100}%`,
+      width: `${slot.width * 100}%`,
+      height: `${slot.height * 100}%`,
+      backgroundColor: slot.backgroundColor || 'rgba(15, 23, 42, 0.86)',
+    };
+
+    return (
+      <div
+        key={slot.id}
+        style={style}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          setActiveDropSlot(slot.id);
+        }}
+        onDragLeave={() => setActiveDropSlot(current => current === slot.id ? null : current)}
+        onDragOver={(event) => handleDragOverSlot(event, slot.id)}
+        onDrop={(event) => handleDropToSlot(event, slot.id)}
+        className={`absolute overflow-hidden rounded-sm border-2 transition-colors ${
+          isDropTarget
+            ? 'border-primary bg-primary/20'
+            : item
+              ? 'border-primary/80 shadow-lg'
+              : 'border-dashed border-white/45'
+        }`}
+      >
+        {item ? (
+          <div
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = 'move';
+              event.dataTransfer.setData('application/x-deck-item', item.deckId);
+              setDraggingDeckItemId(item.deckId);
+            }}
+            onDragEnd={() => {
+              setDraggingDeckItemId(null);
+              setActiveDropSlot(null);
+            }}
+            className="flex h-full cursor-grab flex-col p-2 text-white active:cursor-grabbing"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-semibold text-cyan-200">{slot.label}</span>
+                  <span className={`text-[8px] font-bold border rounded px-1 py-0.5 ${cardTypeClass(item.type)}`}>
+                    {cardTypeLabel(item.type)}
+                  </span>
+                </div>
+                <h3 className="mt-1 text-xs font-semibold leading-snug line-clamp-2">{item.title}</h3>
+              </div>
+              <button
+                onClick={() => removeDeckItem(item.deckId)}
+                className="shrink-0 rounded bg-black/30 px-1.5 py-0.5 text-[10px] text-white/70 hover:text-white"
+              >
+                移除
+              </button>
+            </div>
+            {(item.type === 'image' || item.type === 'slide' || item.type === 'ppt_selection') && item.assetUrl ? (
+              <div className="mt-2 min-h-0 flex-1 overflow-hidden rounded bg-white/10 flex items-center justify-center">
+                <img src={`${item.assetUrl}&mode=full`} alt={item.title} className="max-h-full max-w-full object-contain" />
+              </div>
+            ) : (
+              <p className="mt-1 text-[11px] leading-relaxed text-white/80 line-clamp-5">{item.body}</p>
+            )}
+          </div>
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center p-2 text-center">
+            <span className="text-xs font-semibold text-white">{slot.label}</span>
+            <span className="mt-1 text-[10px] text-white/70">拖入物料</span>
           </div>
         )}
       </div>
@@ -1753,44 +1923,105 @@ export default function Home() {
                       className="mt-2 h-20 w-full resize-none rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-700 outline-none focus:border-primary"
                     />
                   </div>
-                  <div className="w-44 rounded-md border border-slate-100 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-500">
-                    {!generatedHtmlPreview
-                      ? '尚未生成预览'
-                      : isPreviewCurrent
-                        ? `预览已生成：${generatedHtmlPreview.finalizedBy === 'llm' ? '模型生成' : '规则兜底'}`
-                        : '预览已过期，请重新生成'}
+                  <div className="w-56 rounded-md border border-slate-100 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-500">
+                    <p className="font-semibold text-slate-700">
+                      {!generatedHtmlPreview
+                        ? '尚未生成预览'
+                        : isPreviewCurrent
+                          ? `预览已生成：${generatedHtmlPreview.finalizedBy === 'llm' ? '模型生成' : '规则兜底'}`
+                          : '预览已过期，请重新生成'}
+                    </p>
+                    {generatedHtmlPreview && (
+                      <>
+                        <p className="mt-1 truncate text-slate-400">
+                          {generatedHtmlPreview.generatedAt
+                            ? new Date(generatedHtmlPreview.generatedAt).toLocaleString()
+                            : generatedHtmlPreview.fileName}
+                        </p>
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            onClick={handleOpenGeneratedPreview}
+                            className="rounded border border-primary/30 bg-white px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary hover:text-white"
+                          >
+                            打开预览
+                          </button>
+                          <button
+                            onClick={handleExportHtml}
+                            disabled={!isPreviewCurrent}
+                            className={`rounded border px-2 py-1 text-[11px] font-medium ${
+                              isPreviewCurrent
+                                ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-800 hover:text-white'
+                                : 'border-slate-200 bg-slate-100 text-slate-400'
+                            }`}
+                          >
+                            导出
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
 
               <div className="mb-4 rounded-lg border border-slate-200 bg-white/80 p-3">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-[180px]">
                     <p className="text-xs font-semibold text-slate-700">页面布局</p>
-                    <p className="mt-0.5 text-[11px] text-slate-400">布局表达内容关系，最终 HTML 可按内容量动态调整比例。</p>
+                    <p className="mt-0.5 text-[11px] text-slate-400">普通布局用于自由组合；场景模板使用真实 PPT 页面作为底图。</p>
                   </div>
-                  <div className="flex flex-wrap justify-end gap-2">
-                    {PAGE_LAYOUTS.map(layout => (
-                      <button
-                        key={layout.id}
-                        onClick={() => changeActivePageLayout(layout.id)}
-                        className={`rounded-md border px-3 py-1.5 text-xs transition-colors ${
-                          activeLayout.id === layout.id
-                            ? 'border-primary bg-primary text-white shadow-sm'
-                            : 'border-slate-200 bg-white text-slate-600 hover:border-primary/40 hover:text-primary'
-                        }`}
-                      >
-                        {layout.label}
-                      </button>
-                    ))}
+                  <div className="flex flex-1 flex-col items-end gap-3">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {PAGE_LAYOUTS.map(layout => (
+                        <button
+                          key={layout.id}
+                          onClick={() => changeActivePageLayout(layout.id)}
+                          className={`rounded-md border px-3 py-1.5 text-xs transition-colors ${
+                            activeWorkspaceMode === 'generic' && activeLayout.id === layout.id
+                              ? 'border-primary bg-primary text-white shadow-sm'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-primary/40 hover:text-primary'
+                          }`}
+                        >
+                          {layout.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {SCENARIO_TEMPLATE_LAYOUTS.map(template => (
+                        <button
+                          key={template.id}
+                          onClick={() => changeActivePageScenarioTemplate(template.id)}
+                          title={template.description}
+                          className={`rounded-md border px-3 py-1.5 text-xs transition-colors ${
+                            activePage?.templateId === template.id
+                              ? 'border-primary bg-primary text-white shadow-sm'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-primary/40 hover:text-primary'
+                          }`}
+                        >
+                          {template.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
 
               <div className="aspect-[16/9] min-h-[360px] rounded-xl border border-slate-200 bg-slate-100 p-3 shadow-inner">
-                <div className={`grid h-full gap-3 ${layoutGridClass(activeLayout.id)}`}>
-                  {activeLayout.slots.map(renderWorkspaceSlot)}
-                </div>
+                {activeScenarioTemplate ? (
+                  <div className="relative h-full overflow-hidden rounded-lg bg-slate-950">
+                    <img
+                      src={`/api/assets/scenario-template?id=${encodeURIComponent(activeScenarioTemplate.id)}`}
+                      alt={activeScenarioTemplate.label}
+                      className="absolute inset-0 h-full w-full object-cover"
+                    />
+                    {activeScenarioTemplate.slots
+                      .filter(slot => slot.role !== 'auto_title')
+                      .map(renderScenarioWorkspaceSlot)}
+                  </div>
+                ) : (
+                  <div className={`grid h-full gap-3 ${layoutGridClass(activeLayout.id)}`}>
+                    {activeLayout.slots.map(renderWorkspaceSlot)}
+                  </div>
+                )}
               </div>
 
               {unplacedItems.length > 0 && (
@@ -1859,7 +2090,7 @@ export default function Home() {
                           onClick={() => removeDeckItem(item.deckId)}
                           className="text-xs text-slate-400 hover:text-red-500"
                         >
-                          绉婚櫎
+                          移除
                         </button>
                       </div>
                       <div className="p-5">

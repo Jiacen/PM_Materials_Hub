@@ -7,6 +7,7 @@ import { getWorkspacePath } from './fileSystem';
 import { ensurePresentationPreviews, getPresentationPreviewPath } from './presentationPreview';
 import { buildTemplateStyleLibrary, pickTemplateStyles, type TemplateStyle } from './templateStyleLibrary';
 import { getPptSelectionImagePath } from './pptSelectionFavorites';
+import { getScenarioTemplateLayout, type ScenarioTemplateLayout } from './scenarioTemplateLayouts';
 
 type DeckItem = {
   id?: string;
@@ -31,6 +32,9 @@ type DeckPage = {
   id?: string;
   title?: string;
   layout?: string;
+  templateId?: string | null;
+  templateSourceKey?: string;
+  templatePptFile?: string;
   items?: DeckItem[];
 };
 
@@ -40,6 +44,8 @@ type EmbeddedItem = DeckItem & {
 
 type EmbeddedPage = Omit<DeckPage, 'items'> & {
   items: EmbeddedItem[];
+  scenarioTemplate?: ScenarioTemplateLayout;
+  scenarioBackgroundDataUri?: string;
 };
 
 type TemplateReference = {
@@ -91,6 +97,11 @@ function escapeHtml(value: unknown) {
 function compact(value: unknown, maxLength = 2200) {
   const text = String(value ?? '').replace(/\s+/g, ' ').trim();
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function fitText(value: unknown, maxLength: number) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  return text.length > maxLength ? text.slice(0, maxLength).trim() : text;
 }
 
 function hasCjk(value: unknown) {
@@ -162,6 +173,9 @@ function normalizePages(pages: DeckPage[]) {
       id: page.id || `page-${pageIndex + 1}`,
       title: compact(page.title || `Page ${pageIndex + 1}`, 80),
       layout: page.layout || 'single',
+      templateId: page.templateId || null,
+      templateSourceKey: page.templateSourceKey || '',
+      templatePptFile: page.templatePptFile || '',
       items: (page.items || []).map((item, itemIndex) => ({
         id: item.id,
         deckId: item.deckId || `${page.id || pageIndex}-${item.id || itemIndex}`,
@@ -287,7 +301,17 @@ async function embedPageAssets(pages: ReturnType<typeof normalizePages>) {
     for (const item of page.items) {
       items.push({ ...item, imageDataUri: await embedAsset(item, warnings) });
     }
-    embeddedPages.push({ ...page, items });
+    const scenarioTemplate = getScenarioTemplateLayout(page.templateId);
+    let scenarioBackgroundDataUri: string | undefined;
+    if (scenarioTemplate) {
+      const backgroundPath = path.resolve(process.cwd(), '..', 'Slides_Template', 'Scenario_Layouts', scenarioTemplate.imageFile);
+      if (fs.existsSync(backgroundPath)) {
+        scenarioBackgroundDataUri = await imageFileToDataUri(backgroundPath, 'slide');
+      } else {
+        warnings.push(`Scenario template image unavailable: ${scenarioTemplate.imageFile}`);
+      }
+    }
+    embeddedPages.push({ ...page, items, scenarioTemplate, scenarioBackgroundDataUri });
   }
   return { pages: embeddedPages, warnings };
 }
@@ -315,16 +339,30 @@ async function buildBlueprint(
     instructions: {
       contentSource: 'Use the workspace pages and cards as the source of truth.',
       layoutSource: 'Preserve each workspace page layout unless a minor hierarchy adjustment improves readability.',
+      scenarioTemplateRule: 'If templateId is present, keep the scenario template and slotId mapping. Do not invent a different layout. Slots with role=auto_title are generated from page title/headline, not from workspace cards.',
       slideRule: 'Items with type=slide are original PPT pages. Do not rewrite their content. Keep them as full-slide image blocks.',
       styleRule: 'Choose a candidateTemplateStyles item for each generated page and return its id as referenceSlideId. Match its layoutFamily, visualTone, hierarchy, image/text balance, and content density.',
       coverageRule: 'Every input item must appear as a block unless it is explicitly merged with another block from the same page. Blocks must use an existing input deckId only.',
       densityRule: 'For module/product cards, keep 4-6 factual bullets. For certificate cards, include certificate number, report reference, issue date, holder, standards, or certification result when present. For image cards, do not include asset-management captions or usage notes.',
+      scenarioFitRule: 'For scenario templates, fill the slot without overflow. overview slots should use one short title plus 4-5 factual bullets. bullets slots should use one short title plus 5-6 concise bullets. Each bullet may wrap to two lines if needed. Do not return sparse one-bullet content.',
+      scenarioQualityRule: 'Before returning JSON, self-check that each scenario slot is directly usable in a PPT: no ellipsis, no placeholder labels, no annotation text, no overflowing copy, no raw background/image pasted into text slots.',
       output: 'Return JSON only. Do not return HTML.',
     },
     pages: pages.map(page => ({
       id: page.id,
       title: page.title,
       layout: page.layout,
+      templateId: page.templateId,
+      scenarioTemplate: page.scenarioTemplate ? {
+        id: page.scenarioTemplate.id,
+        label: page.scenarioTemplate.label,
+        slots: page.scenarioTemplate.slots.map(slot => ({
+          id: slot.id,
+          label: slot.label,
+          role: slot.role,
+          type: slot.type,
+        })),
+      } : undefined,
       items: page.items.map(item => ({
         deckId: item.deckId,
         type: item.type,
@@ -365,6 +403,9 @@ The final renderer is deterministic, so return concise JSON with this shape:
 }
 Language rule: the final presentation is for Chinese product managers. Write all user-facing title, kicker, headline, and bullets in Simplified Chinese. Preserve product names, model numbers, certificate numbers, standards, and English brand names exactly when they are factual identifiers. Do not translate Chinese source material into English.
 Reference the selected Slides_Template page as a concrete design pattern, not only as a color palette.
+If an input page has templateId/scenarioTemplate, keep the provided slotId mapping and return blocks for content slots only. Do not assign any card to an auto_title slot; write the page title/headline for that slot through the page title fields. Do not change it to a generic layout.
+For scenario templates, the renderer has fixed slot sizes. Use enough content to make the slot look filled but not crowded: overview slots should contain 4-5 useful factual bullets; benefits/bullets slots should contain 5-6 useful bullets. Each bullet may wrap to two lines if needed. Do not return sparse one-bullet content.
+Before returning JSON, check your own output as if it will be shown directly to the PM. Do not use ellipsis. If text is too long, rewrite it shorter instead of ending with "...".
 If the user asks for a dark background, every non-original-PPT generated page MUST use visualTone "dark".
 Represent every workspace card. Do not drop low-level evidence cards such as certifications, parameters, comparisons, or customer cases.
 For module/product cards, preserve enough concrete facts for a product manager to use the slide: normally 4-6 bullets.
@@ -503,7 +544,122 @@ function renderImageBlockV2(item: EmbeddedItem, block: BlueprintBlock) {
   </article>`;
 }
 
+function scenarioSlotText(item: EmbeddedItem, block: BlueprintBlock, role: string) {
+  const title = preferSourceLanguage(block.title, item.title);
+  const bullets = mergeBullets(block.bullets, item, role === 'bullets' ? 7 : 4);
+  if (role === 'auto_title') {
+    return `<h2 contenteditable="true">${escapeHtml(title)}</h2>`;
+  }
+  if (role === 'bullets') {
+    return `<h3 contenteditable="true">${escapeHtml(title || '客户收益')}</h3>${bullets.length ? `<ul contenteditable="true">${bullets.map(bullet => `<li>${escapeHtml(bullet)}</li>`).join('')}</ul>` : ''}`;
+  }
+  const paragraph = compact(item.body || bullets.join(' '), 520);
+  return `<h3 contenteditable="true">${escapeHtml(title)}</h3>${paragraph ? `<p contenteditable="true">${escapeHtml(paragraph)}</p>` : ''}`;
+}
+
+function scenarioSlotTextClean(item: EmbeddedItem, block: BlueprintBlock, role: string) {
+  const title = preferSourceLanguage(block.title, item.title);
+  const bullets = mergeBullets(block.bullets, item, role === 'bullets' ? 7 : 4);
+  if (role === 'bullets') {
+    return `<h3 contenteditable="true">${escapeHtml(title || '客户收益')}</h3>${bullets.length ? `<ul contenteditable="true">${bullets.map(bullet => `<li>${escapeHtml(bullet)}</li>`).join('')}</ul>` : ''}`;
+  }
+  const paragraph = compact(item.body || bullets.join(' '), 520);
+  return `<h3 contenteditable="true">${escapeHtml(title)}</h3>${paragraph ? `<p contenteditable="true">${escapeHtml(paragraph)}</p>` : ''}`;
+}
+
+function scenarioSlotStyle(slot: ScenarioTemplateLayout['slots'][number]) {
+  const inset = slot.role === 'auto_title' ? 0.002 : 0.004;
+  const x = Math.max(0, slot.x - inset);
+  const y = Math.max(0, slot.y - inset);
+  const width = Math.min(1 - x, slot.width + inset * 2);
+  const height = Math.min(1 - y, slot.height + inset * 2);
+  return `left:${x * 100}%;top:${y * 100}%;width:${width * 100}%;height:${height * 100}%;background:${slot.backgroundColor};`;
+}
+
+function scenarioSlotTextFitted(item: EmbeddedItem, block: BlueprintBlock, role: string) {
+  const title = preferSourceLanguage(block.title, item.title);
+  const bullets = mergeBullets(block.bullets, item, role === 'bullets' ? 6 : 5);
+  const shortTitle = fitText(title, role === 'overview' ? 36 : 38);
+
+  if (role === 'bullets') {
+    return `<h3 contenteditable="true">${escapeHtml(shortTitle || '客户收益')}</h3>${bullets.length ? `<ul contenteditable="true">${bullets.slice(0, 6).map(bullet => `<li>${escapeHtml(fitText(bullet, 64))}</li>`).join('')}</ul>` : ''}`;
+  }
+
+  if (role === 'overview') {
+    if (bullets.length >= 2) {
+      return `<h3 contenteditable="true">${escapeHtml(shortTitle)}</h3><ul contenteditable="true">${bullets.slice(0, 5).map(bullet => `<li>${escapeHtml(fitText(bullet, 62))}</li>`).join('')}</ul>`;
+    }
+    const paragraph = fitText(item.body || bullets.join(' '), 230);
+    return `<h3 contenteditable="true">${escapeHtml(shortTitle)}</h3>${paragraph ? `<p contenteditable="true">${escapeHtml(paragraph)}</p>` : ''}`;
+  }
+
+  const paragraph = fitText(item.body || bullets.join(' '), 180);
+  return `<h3 contenteditable="true">${escapeHtml(shortTitle)}</h3>${paragraph ? `<p contenteditable="true">${escapeHtml(paragraph)}</p>` : ''}`;
+}
+
+function renderScenarioTitleSlot(slot: ScenarioTemplateLayout['slots'][number], title: string) {
+  const style = scenarioSlotStyle(slot);
+  return `<div class="scenario-slot scenario-slot-text scenario-slot-auto_title" style="${style}">
+    <h2 contenteditable="true">${escapeHtml(title)}</h2>
+  </div>`;
+}
+
+function renderScenarioSlot(slot: ScenarioTemplateLayout['slots'][number], item: EmbeddedItem | undefined, block: BlueprintBlock | undefined) {
+  const style = scenarioSlotStyle(slot);
+  if (!item) {
+    return `<div class="scenario-slot scenario-slot-empty" style="${style}"></div>`;
+  }
+
+  if (slot.type === 'image' && item.imageDataUri) {
+    return `<div class="scenario-slot scenario-slot-image" style="${style}">
+      <img src="${item.imageDataUri}" alt="${escapeHtml(item.title)}">
+    </div>`;
+  }
+
+  return `<div class="scenario-slot scenario-slot-text scenario-slot-${escapeHtml(slot.role)}" style="${style}">
+    ${scenarioSlotTextFitted(item, block || { deckId: item.deckId, title: item.title, bullets: splitBullets(item) }, slot.role)}
+  </div>`;
+}
+
+function renderScenarioPage(page: EmbeddedPage, blueprintPage: BlueprintPage, pageIndex: number) {
+  if (!page.scenarioTemplate || !page.scenarioBackgroundDataUri) return '';
+  const itemsByDeckId = new Map(page.items.map(item => [item.deckId, item]));
+  const blocks = (blueprintPage.blocks?.length ? blueprintPage.blocks : page.items.map(item => ({ deckId: item.deckId, slotId: item.slotId, title: item.title, bullets: splitBullets(item) })))
+    .map(block => ({ block, item: itemsByDeckId.get(block.deckId) }))
+    .filter((entry): entry is { block: BlueprintBlock; item: EmbeddedItem } => Boolean(entry.item));
+  const itemBySlot = new Map<string, { item: EmbeddedItem; block: BlueprintBlock }>();
+  for (const entry of blocks) {
+    const slotId = entry.block.slotId || entry.item.slotId || '';
+    if (slotId && !itemBySlot.has(slotId)) itemBySlot.set(slotId, entry);
+  }
+  for (const item of page.items) {
+    if (item.slotId && !itemBySlot.has(item.slotId)) {
+      itemBySlot.set(item.slotId, {
+        item,
+        block: { deckId: item.deckId, slotId: item.slotId, title: item.title, bullets: splitBullets(item) },
+      });
+    }
+  }
+  const autoTitle = preferSourceLanguage(
+    blueprintPage.headline || blueprintPage.title,
+    page.title !== `Page ${pageIndex + 1}` ? page.title : (page.items[0]?.title || `Page ${pageIndex + 1}`),
+  );
+
+  return `<section class="slide scenario-slide" data-template-id="${escapeHtml(page.scenarioTemplate.id)}">
+    <img class="scenario-bg" src="${page.scenarioBackgroundDataUri}" alt="${escapeHtml(page.scenarioTemplate.label)}">
+    ${page.scenarioTemplate.slots.map(slot => {
+      if (slot.role === 'auto_title') return renderScenarioTitleSlot(slot, autoTitle);
+      const placed = itemBySlot.get(slot.id);
+      return renderScenarioSlot(slot, placed?.item, placed?.block);
+    }).join('')}
+  </section>`;
+}
+
 function renderPageV2(page: EmbeddedPage, blueprintPage: BlueprintPage, pageIndex: number, forceDark = false) {
+  if (page.scenarioTemplate) {
+    const scenarioHtml = renderScenarioPage(page, blueprintPage, pageIndex);
+    if (scenarioHtml) return scenarioHtml;
+  }
   const itemsByDeckId = new Map(page.items.map(item => [item.deckId, item]));
   const rawBlocks = blueprintPage.blocks?.length
     ? blueprintPage.blocks
@@ -549,12 +705,49 @@ function renderPageV2(page: EmbeddedPage, blueprintPage: BlueprintPage, pageInde
 
 function renderHtml(title: string, pages: EmbeddedPage[], blueprint: GenerationBlueprint, template: TemplateReference, finalizedBy: string, warnings: string[], forceDark = false) {
   const css = `:root{--teal:#009999;--ink:#172b36;--muted:#64727c;--line:#d7e1e4;--soft:#eef3f4;--accent:#f4a100}*{box-sizing:border-box}body{margin:0;background:#dfe7ea;color:var(--ink);font-family:Arial,"Microsoft YaHei",sans-serif}.preview-toolbar{position:sticky;top:0;z-index:50;height:54px;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 22px;box-shadow:0 6px 18px rgba(18,42,52,.08)}.preview-toolbar strong{font-size:14px}.preview-toolbar span{font-size:12px;color:var(--muted);margin-left:10px}.toolbar-actions{display:flex;gap:10px}.toolbar-actions a,.toolbar-actions button{border:1px solid var(--line);border-radius:6px;background:white;color:var(--ink);font-size:13px;font-weight:700;padding:8px 13px;text-decoration:none;cursor:pointer}.toolbar-actions button{background:var(--teal);border-color:var(--teal);color:white}.deck{width:100%;padding-top:10px}.slide{width:1280px;height:720px;margin:28px auto;background:#fbfdfd;position:relative;overflow:hidden;box-shadow:0 18px 45px rgba(18,42,52,.18);padding:42px 52px;page-break-after:always}.slide:before{content:"";position:absolute;left:0;top:0;width:9px;height:100%;background:var(--teal)}.slide-header{display:flex;justify-content:space-between;gap:32px;align-items:flex-start;margin-bottom:28px}.kicker{font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:var(--teal);font-weight:700}.slide-header h2{margin:6px 0 0;font-size:34px;line-height:1.12;max-width:850px}.slide-header span{font-size:13px;color:var(--muted);max-width:260px;text-align:right}.content-grid{height:560px;display:grid;gap:18px}.layout-single{grid-template-columns:1fr}.layout-two-columns{grid-template-columns:1fr 1fr}.layout-left-main-right-stack{grid-template-columns:1.18fr .82fr;grid-template-rows:1fr 1fr}.layout-left-main-right-stack>:first-child{grid-row:1/3}.layout-two-rows{grid-template-rows:1fr 1fr}.layout-four-grid{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}.block,.image-block{border:1px solid var(--line);background:white;padding:22px;min-height:0;overflow:hidden;display:flex;flex-direction:column}.block.is-hero{border-top:5px solid var(--teal)}.block-meta{font-size:12px;color:var(--teal);font-weight:700;text-transform:uppercase;margin-bottom:8px}h3{font-size:24px;line-height:1.18;margin:0 0 10px}p{font-size:15px;line-height:1.5;color:#334650;margin:0 0 12px}ul{margin:4px 0 0;padding-left:20px}li{font-size:15px;line-height:1.45;margin:6px 0}footer{margin-top:auto;padding-top:12px;font-size:11px;color:#829098}.image-block{display:grid;grid-template-columns:1.1fr .9fr;gap:18px;align-items:center}.image-frame{height:100%;min-height:210px;background:var(--soft);display:flex;align-items:center;justify-content:center}.image-frame img{max-width:100%;max-height:100%;object-fit:contain}.slide-image-block{position:absolute;inset:0;background:#111;display:flex;align-items:center;justify-content:center}.slide-image-block img{width:100%;height:100%;object-fit:contain}.slide-native{padding:0}.slide-native:before{display:none}.missing-image{color:#9aa6ad;font-size:18px}.notes{width:1280px;margin:0 auto 28px;color:#667782;font-size:12px}@media print{.preview-toolbar{display:none}body{background:white}.deck{padding-top:0}.slide{margin:0;box-shadow:none}}`;
-  const styleCss = `.slide.tone-dark{background:#101820;color:#f5f8f9}.slide.tone-dark:after{content:"";position:absolute;right:-120px;top:-160px;width:420px;height:420px;background:rgba(0,153,153,.2);transform:rotate(24deg)}.slide.tone-dark .slide-header h2,.slide.tone-dark h3{color:#fff}.slide.tone-dark p,.slide.tone-dark li{color:#d7e1e4}.slide.tone-dark .block,.slide.tone-dark .image-block{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.15)}.slide.tone-dark .image-frame{background:rgba(255,255,255,.08)}.layout-product-showcase{grid-template-columns:1.05fr .95fr}.layout-product-showcase .image-block{grid-column:1/3;grid-template-columns:1fr .95fr;padding:30px}.layout-image-focus{grid-template-columns:1fr}.layout-image-focus .image-block{grid-template-columns:1.3fr .7fr}.layout-case-story{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}.layout-case-story .block:first-child{grid-column:1/3;background:var(--ink);color:white}.layout-case-story .block:first-child h3,.layout-case-story .block:first-child li{color:white}.layout-section-overview{grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr)}.layout-headline-bullets{grid-template-columns:1fr 1fr}.block-meta,footer,.notes{display:none!important}.block{justify-content:flex-start}.block h3{font-size:26px}.block ul{padding-left:0;list-style:none}.block li{position:relative;padding-left:20px}.block li:before{content:"";position:absolute;left:0;top:.68em;width:7px;height:7px;background:var(--teal)}.slide.tone-dark .block li:before{background:#22d3d3}`;
+  const styleCss = `.slide.tone-dark{background:#101820;color:#f5f8f9}.slide.tone-dark:after{content:"";position:absolute;right:-120px;top:-160px;width:420px;height:420px;background:rgba(0,153,153,.2);transform:rotate(24deg)}.slide.tone-dark .slide-header h2,.slide.tone-dark h3{color:#fff}.slide.tone-dark p,.slide.tone-dark li{color:#d7e1e4}.slide.tone-dark .block,.slide.tone-dark .image-block{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.15)}.slide.tone-dark .image-frame{background:rgba(255,255,255,.08)}.layout-product-showcase{grid-template-columns:1.05fr .95fr}.layout-product-showcase .image-block{grid-column:1/3;grid-template-columns:1fr .95fr;padding:30px}.layout-image-focus{grid-template-columns:1fr}.layout-image-focus .image-block{grid-template-columns:1.3fr .7fr}.layout-case-story{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}.layout-case-story .block:first-child{grid-column:1/3;background:var(--ink);color:white}.layout-case-story .block:first-child h3,.layout-case-story .block:first-child li{color:white}.layout-section-overview{grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr)}.layout-headline-bullets{grid-template-columns:1fr 1fr}.block-meta,footer,.notes{display:none!important}.block{justify-content:flex-start}.block h3{font-size:26px}.block ul{padding-left:0;list-style:none}.block li{position:relative;padding-left:20px}.block li:before{content:"";position:absolute;left:0;top:.68em;width:7px;height:7px;background:var(--teal)}.slide.tone-dark .block li:before{background:#22d3d3}.scenario-slide{padding:0;background:#010226}.scenario-slide:before{display:none}.scenario-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.scenario-slot{position:absolute;z-index:2;overflow:hidden}.scenario-slot-image{display:flex;align-items:center;justify-content:center}.scenario-slot-image img{max-width:100%;max-height:100%;object-fit:contain}.scenario-slot-text{padding:14px 16px;color:#fff}.scenario-slot-text h2{font-size:28px;line-height:1.16;margin:0;font-weight:800;color:#fff}.scenario-slot-text h3{font-size:22px;line-height:1.18;margin:0 0 10px;font-weight:800;color:#00ffcf}.scenario-slot-text p{font-size:20px;line-height:1.26;margin:0;color:#fff}.scenario-slot-text ul{margin:0;padding-left:20px}.scenario-slot-text li{font-size:16px;line-height:1.34;margin:6px 0;color:#fff}.scenario-slot-bullets{color:#03141b}.scenario-slot-bullets h3,.scenario-slot-bullets p,.scenario-slot-bullets li{color:#03141b}.scenario-slot-bullets h3{font-size:24px}.scenario-slot-overview p{font-size:20px}.scenario-slot-empty{display:block}`;
+  const scenarioFitCss = `[contenteditable]{outline:none}[contenteditable]:focus{outline:none}.scenario-slot-text{display:flex;flex-direction:column;justify-content:flex-start;word-break:break-word}.scenario-slot-overview{padding:18px 18px}.scenario-slot-overview h3{font-size:20px;line-height:1.12;margin-bottom:8px}.scenario-slot-overview p{font-size:15px;line-height:1.23;margin:0}.scenario-slot-overview ul{padding-left:18px;margin:0}.scenario-slot-overview li{font-size:14.5px;line-height:1.22;margin:3px 0;white-space:normal}.scenario-slot-bullets{padding:24px 42px}.scenario-slot-bullets h3{font-size:22px;line-height:1.12;margin-bottom:10px;color:#03141b}.scenario-slot-bullets ul{padding-left:18px;margin:0}.scenario-slot-bullets li{font-size:14.5px;line-height:1.22;margin:4px 0;color:#03141b;white-space:normal}.scenario-slot-auto_title{padding:0 0 0 0;justify-content:center}.scenario-slot-auto_title h2{font-size:28px;line-height:1.12}.scenario-slot-image{padding:0}.scenario-slot-image img{width:100%;height:100%;object-fit:contain}`;
   const pageHtml = pages.map((page, index) => renderPageV2(page, blueprint.pages?.[index] || {}, index, forceDark)).join('\n');
   const warningHtml = warnings.length ? `<div class="notes">Generated by: ${escapeHtml(finalizedBy)} · Template: ${escapeHtml(template.fileName)} · ${warnings.map(escapeHtml).join(' · ')}</div>` : `<div class="notes">Generated by: ${escapeHtml(finalizedBy)} · Template: ${escapeHtml(template.fileName)}</div>`;
   const script = `<script>
-    function downloadCurrentPreview() {
-      window.location.href = window.location.pathname + '?download=1';
+    async function downloadCurrentPreview() {
+      const fileName = (document.title || 'presentation').replace(/[\\\\/:*?"<>|]+/g, '-').slice(0, 80) + '.html';
+      try {
+        const response = await fetch(window.location.pathname + '?download=1', { cache: 'no-store' });
+        if (!response.ok) throw new Error('download failed');
+        const blob = await response.blob();
+
+        if ('showSaveFilePicker' in window) {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: fileName,
+            types: [{
+              description: 'HTML Presentation',
+              accept: { 'text/html': ['.html'] }
+            }]
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          alert('导出成功：HTML 文件已保存到你选择的位置。');
+          return;
+        }
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        alert('浏览器已开始下载。若没有弹出保存位置选择框，请在浏览器下载设置中开启“每次下载前询问保存位置”。');
+      } catch (error) {
+        if (error && error.name === 'AbortError') {
+          alert('已取消导出。');
+          return;
+        }
+        alert('导出失败，请稍后重试。');
+      }
     }
   </script>`;
   return `<!doctype html>
@@ -563,7 +756,7 @@ function renderHtml(title: string, pages: EmbeddedPage[], blueprint: GenerationB
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title>
-  <style>${css}${styleCss}</style>
+  <style>${css}${styleCss}${scenarioFitCss}</style>
 </head>
 <body>
   <nav class="preview-toolbar">
@@ -576,6 +769,7 @@ function renderHtml(title: string, pages: EmbeddedPage[], blueprint: GenerationB
   <main class="deck">
     ${pageHtml}
   </main>
+  ${warningHtml}
   ${script}
 </body>
 </html>`;
