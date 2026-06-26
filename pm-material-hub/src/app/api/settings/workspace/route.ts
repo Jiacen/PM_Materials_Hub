@@ -9,15 +9,15 @@ export async function POST(req: Request) {
   try {
     const { workspacePath } = await req.json();
     
-    let settings = { workspacePath: '', llmProvider: 'kimi', apiKey: '' };
+    let settings = { workspacePath: '', llmProvider: 'kimi', apiKey: '', llmBaseUrl: 'https://api.moonshot.cn/v1' };
     if (fs.existsSync(SETTINGS_PATH)) {
       settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
     }
     
     settings.workspacePath = workspacePath;
     
-    // Save to settings
-    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2));
+    fs.mkdirSync(path.dirname(SETTINGS_PATH), { recursive: true });
+    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf8');
     
     // Initialize the folders in the new workspace path immediately
     initWorkspace();
