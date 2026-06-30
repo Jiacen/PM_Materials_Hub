@@ -1,6 +1,5 @@
 @echo off
 setlocal
-chcp 65001 >nul
 
 cd /d "%~dp0"
 set "PORT=3001"
@@ -10,7 +9,7 @@ set "LOG_FILE=%cd%\dev-server.log"
 call :find_npm
 if not defined NPM_CMD (
   echo [%date% %time%] Node.js / npm not found. > "%LOG_FILE%"
-  echo 未找到 Node.js / npm。请先安装 Node.js LTS。
+  echo Node.js / npm was not found. Please install Node.js LTS.
   pause
   exit /b 1
 )
@@ -23,7 +22,7 @@ if not exist "node_modules" (
   echo [%date% %time%] Installing dependencies... >> "%LOG_FILE%"
   "%NPM_CMD%" install >> "%LOG_FILE%" 2>&1
   if errorlevel 1 (
-    echo 依赖安装失败，详情见 dev-server.log。
+    echo Dependency installation failed. See dev-server.log for details.
     pause
     exit /b 1
   )
