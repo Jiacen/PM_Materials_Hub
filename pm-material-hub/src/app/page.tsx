@@ -144,7 +144,7 @@ export default function Home() {
   const loadMaterialCards = async (folderName: string) => {
     setIsLoadingCards(true);
     try {
-      const res = await fetch(`/api/materials/cards?folderName=${encodeURIComponent(folderName)}`);
+      const res = await fetch(`/api/materials/cards?folderName=${encodeURIComponent(folderName)}&t=${Date.now()}`, { cache: 'no-store' });
       const data = await res.json();
       setMaterialCards(data.success ? data.cards || [] : []);
     } catch (err) {
@@ -191,6 +191,7 @@ export default function Home() {
     
     setIsExtracting(true);
     setExtractionResult(null);
+    const folderAtStart = selectedFolder;
     try {
       const res = await fetch('/api/extract/batch', {
         method: 'POST',
@@ -200,6 +201,8 @@ export default function Home() {
       const data = await res.json();
       setExtractionResult(data);
       if (data.success) {
+        await handleSync();
+        await loadMaterialCards(folderAtStart);
         alert("批量提取完成，请查看状态栏的详细结果。");
       } else {
         alert("提取过程中出现错误：" + data.error);
@@ -294,7 +297,7 @@ export default function Home() {
   const handleSync = async () => {
     setIsSyncing(true);
     try {
-      const res = await fetch('/api/sync');
+      const res = await fetch(`/api/sync?t=${Date.now()}`, { cache: 'no-store' });
       const data = await res.json();
       
       // If API throws WORKSPACE_NOT_SET, open setup modal
@@ -1856,15 +1859,15 @@ export default function Home() {
                   ))}
 
                   {standaloneAiCards.length > 0 && (
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-xs font-semibold text-primary">主数据与精选主题卡</h3>
-                        <span className="text-[10px] text-slate-400">可直接拖入工作区</span>
-                      </div>
-                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                    <details open className="rounded-lg border border-slate-200 bg-slate-50/50">
+                      <summary className="cursor-pointer px-4 py-3 text-xs font-semibold text-primary hover:text-primary/80">
+                        主数据与精选主题卡 ({standaloneAiCards.length})
+                        <span className="ml-2 text-[10px] font-normal text-slate-400">可直接拖入工作区</span>
+                      </summary>
+                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 border-t border-slate-200 bg-white p-4">
                         {standaloneAiCards.map(renderMaterialCard)}
                       </div>
-                    </div>
+                    </details>
                   )}
 
                   {rawMaterialCards.length > 0 && (

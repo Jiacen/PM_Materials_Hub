@@ -87,7 +87,7 @@ pm-material-hub/config/settings.json
 
 “生成本地 JSON”只读取本地文件，生成 raw JSON、图片 manifest、PPT 原始页预览和原始候选卡。这一步不调用大模型。
 
-对于 `03_Manual_产品技术手册`：
+以下以 `03_Manual_产品技术手册` 为例，说明某一类资料夹可以有自己的本地 JSON 压缩策略；其他资料夹仍按各自规则处理，例如 01 读取主数据、04 保留 PPT 原始页、08 读取图片 manifest。
 
 - 本地 JSON 阶段先按手册章节标题切分内容。
 - 每个章节会先做确定性的本地 digest 压缩，提取概览句、参数事实、操作/工程规则、警告与限制、诊断维护等生命周期事实、证据摘录和 MLFB 候选。
@@ -105,14 +105,23 @@ pm-material-hub/src/lib/localIndexer.ts
 pm-material-hub/src/lib/extractors.ts
 ```
 
-本地解析使用的工具和能力包括：
+本地解析使用的工具、来源和当前用途包括：
 
-- `xlsx`：读取 Excel 产品主数据
-- `mammoth`：提取 Word `.docx` 原始文本
-- `pdf-parse`：提取 PDF 文本
-- PPT/PPTX 本地解析辅助逻辑：提取页面文本、表格、备注、页码和证据 ID
-- `sharp`：读取图片尺寸、格式、透明度等 manifest 信息
-- Microsoft PowerPoint COM 自动化：导出真实 PPT/PPTX 页面 PNG 预览
+| 工具 | 当前版本 | 来源 | 在本项目中的用途 |
+| --- | --- | --- | --- |
+| `xlsx` | `^0.18.5` | [SheetJS/sheetjs](https://github.com/SheetJS/sheetjs) | 读取 01 Excel 产品主数据，解析 sheet、行、MLFB、描述和价格字段。 |
+| `mammoth` | `^1.12.0` | [mwilliamson/mammoth.js](https://github.com/mwilliamson/mammoth.js) | 提取 `.docx` 原始文本，不保留复杂 Word 样式。 |
+| `pdf-parse` | `^1.1.1` | [willmcpo/pdf-parse](https://github.com/willmcpo/pdf-parse) | 优先提取可复制文字型 PDF 的文本。 |
+| `pdfjs-dist` | `^5.6.205` | [mozilla/pdf.js](https://github.com/mozilla/pdf.js) | 当 PDF 文本过少、疑似扫描件时，把 PDF 页面本地渲染成图片供 OCR 使用。 |
+| `tesseract.js` | `^7.0.0` | [naptha/tesseract.js](https://github.com/naptha/tesseract.js) | 对扫描型 PDF 渲染图做本地 OCR。当前随项目缓存 `eng.traineddata`，路径为 `pm-material-hub/resources/ocr/eng.traineddata`。 |
+| Tesseract OCR 语言数据 | `eng.traineddata` | [tesseract-ocr/tessdata](https://github.com/tesseract-ocr/tessdata) | OCR 英文模型数据。本项目目前只内置英文数据；中文扫描 PDF 的 OCR 效果取决于后续是否补充中文 traineddata。 |
+| `@napi-rs/canvas` | `^0.1.100` | [Brooooooklyn/canvas](https://github.com/Brooooooklyn/canvas) | 在 Node.js 中创建 canvas，把 PDF 页渲染成图片供 OCR。 |
+| `officeparser` | `^7.2.1` | [harshankur/officeParser](https://github.com/harshankur/officeParser) | 解析 PPT/PPTX、DOC 等 Office 文件，提取页面文本、表格、备注、图片引用和 slide evidence ID。 |
+| `sharp` | `^0.35.1` | [lovell/sharp](https://github.com/lovell/sharp) | 读取图片尺寸、格式、透明度等 manifest 信息；裁剪 PPT 框选区域；处理图片背景。 |
+| `adm-zip` | `^0.5.17` | [cthackers/adm-zip](https://github.com/cthackers/adm-zip) | 读取 PPTX zip 内部 XML，用于框选区域文字提取、模板文字和布局分析。 |
+| Microsoft PowerPoint COM | 本机 Office 能力 | Microsoft Office 本地安装 | 导出真实 PPT/PPTX 页面 PNG 预览，保证原始页视觉和 PowerPoint 渲染一致。 |
+
+OCR 触发逻辑在 `pm-material-hub/src/lib/extractors.ts`：先用 `pdf-parse` 提取 PDF 文本；如果文本长度过短，才调用 `pm-material-hub/scripts/ocr-pdf.cjs`，用 `pdfjs-dist` + `@napi-rs/canvas` + `tesseract.js` 在本地执行 OCR。
 
 生成结果保存在：
 

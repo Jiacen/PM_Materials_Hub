@@ -4,6 +4,8 @@ import path from 'path';
 import { initWorkspace, scanWorkspaceFiles, getWorkspacePath } from '@/lib/fileSystem';
 import { countLocalIndexes } from '@/lib/localIndexer';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     // 1. Check workspace and auto-initialize the 10 folders if missing

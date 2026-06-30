@@ -80,12 +80,17 @@ pm-material-hub/src/lib/extractors.ts
 
 Use local parsers and local Windows capabilities before any model call:
 
-- `xlsx` for Excel product master rows
-- `mammoth` for Word `.docx` raw text
-- `pdf-parse` for PDF text
-- presentation extraction helpers for PPT/PPTX text, tables, notes, slide numbers, and evidence IDs
-- `sharp` for image metadata and image manifests
-- Microsoft PowerPoint COM automation for true PPT/PPTX PNG page previews
+- `xlsx` `^0.18.5`, [SheetJS/sheetjs](https://github.com/SheetJS/sheetjs): Excel product master rows.
+- `mammoth` `^1.12.0`, [mwilliamson/mammoth.js](https://github.com/mwilliamson/mammoth.js): `.docx` raw text.
+- `pdf-parse` `^1.1.1`, [willmcpo/pdf-parse](https://github.com/willmcpo/pdf-parse): text PDFs.
+- `pdfjs-dist` `^5.6.205`, [mozilla/pdf.js](https://github.com/mozilla/pdf.js): render scanned PDF pages for OCR fallback.
+- `tesseract.js` `^7.0.0`, [naptha/tesseract.js](https://github.com/naptha/tesseract.js): local OCR fallback; cached language data lives under `pm-material-hub/resources/ocr/`.
+- Tesseract language data, [tesseract-ocr/tessdata](https://github.com/tesseract-ocr/tessdata): currently only `eng.traineddata` is bundled.
+- `@napi-rs/canvas` `^0.1.100`, [Brooooooklyn/canvas](https://github.com/Brooooooklyn/canvas): Node.js canvas for PDF page rasterization.
+- `officeparser` `^7.2.1`, [harshankur/officeParser](https://github.com/harshankur/officeParser): PPT/PPTX and DOC text, tables, notes, image references, and evidence IDs.
+- `sharp` `^0.35.1`, [lovell/sharp](https://github.com/lovell/sharp): image metadata, cropping, and background handling.
+- `adm-zip` `^0.5.17`, [cthackers/adm-zip](https://github.com/cthackers/adm-zip): PPTX internal XML inspection.
+- Microsoft PowerPoint COM automation: true PPT/PPTX PNG page previews.
 
 Folder `03_Manual_产品技术手册` is chapter/theme based. Local indexing should split manuals by detected chapter headings and build deterministic per-chapter digests with overview lines, parameter facts, procedure rules, warnings or limits, lifecycle facts, evidence snippets, and MLFB candidates. Do not make folder 03 one-card-per-MLFB; MLFB values are only `related_mlfbs` tags filtered through folder 01 product master data.
 

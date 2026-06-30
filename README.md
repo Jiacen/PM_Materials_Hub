@@ -94,11 +94,14 @@ This file is intentionally not committed because it may contain local paths and 
 9. Generate an editable HTML PPT preview.
 10. Export the standalone HTML file.
 
-For `03_Manual_产品技术手册`, local indexing is chapter based. The app first splits manuals by detected chapter headings. It then creates a deterministic local digest for each chapter by extracting overview lines, parameter facts, procedure rules, warnings or limits, lifecycle facts, evidence snippets, and MLFB candidates. This digest is generated locally without the LLM and becomes the bounded input for model refinement.
+As one folder-specific example, `03_Manual_产品技术手册` uses a chapter-based local compression strategy. Other folders keep their own rules, such as folder 01 product master parsing, folder 04 original PPT page preservation, and folder 08 image manifests.
 
-Folder 03 refined cards are reusable chapter/theme cards such as installation, wiring, configuration, commissioning, diagnostics, maintenance, safety notes, limitations, and technical specifications. MLFB values are only optional `related_mlfbs` tags and are filtered against the folder 01 product master whitelist.
-
-Folder 03 filters low-value content during both local digest generation and model-output validation, including vulnerability notices, security update notifications, automatic notification options, signed firmware or firmware update notices, generic cybersecurity advisories, data/archive integrity reminders, marketing copy, copyright/trademark/disclaimer text, repeated warning boilerplate, and empty placeholders.
+- The app first splits manuals by detected chapter headings.
+- It creates a deterministic local digest for each chapter by extracting overview lines, parameter facts, procedure rules, warnings or limits, lifecycle facts, evidence snippets, and MLFB candidates.
+- This digest is generated locally without the LLM and becomes the bounded input for model refinement.
+- Folder 03 refined cards are reusable chapter/theme cards such as installation, wiring, configuration, commissioning, diagnostics, maintenance, safety notes, limitations, and technical specifications.
+- MLFB values are only optional `related_mlfbs` tags and are filtered against the folder 01 product master whitelist.
+- Folder 03 filters low-value content during both local digest generation and model-output validation, including vulnerability notices, security update notifications, automatic notification options, signed firmware or firmware update notices, generic cybersecurity advisories, data/archive integrity reminders, marketing copy, copyright/trademark/disclaimer text, repeated warning boilerplate, and empty placeholders.
 
 ## Local JSON Technology
 
@@ -106,12 +109,21 @@ Local JSON generation is implemented in `pm-material-hub/src/lib/localIndexer.ts
 
 The pipeline uses local tools and libraries:
 
-- `xlsx` for Excel product master parsing
-- `mammoth` for Word `.docx` raw text extraction
-- `pdf-parse` for PDF text extraction
-- local PPT/PPTX parsing helpers for slide text, tables, notes, and evidence IDs
-- `sharp` for image metadata and image manifests
-- Microsoft PowerPoint COM automation for true PPT/PPTX PNG page previews
+| Tool | Current version | Source | Use in this project |
+| --- | --- | --- | --- |
+| `xlsx` | `^0.18.5` | [SheetJS/sheetjs](https://github.com/SheetJS/sheetjs) | Reads folder 01 Excel product masters, sheets, rows, MLFBs, descriptions, and price fields. |
+| `mammoth` | `^1.12.0` | [mwilliamson/mammoth.js](https://github.com/mwilliamson/mammoth.js) | Extracts raw text from `.docx` files without preserving complex Word styling. |
+| `pdf-parse` | `^1.1.1` | [willmcpo/pdf-parse](https://github.com/willmcpo/pdf-parse) | Extracts text from copyable text PDFs first. |
+| `pdfjs-dist` | `^5.6.205` | [mozilla/pdf.js](https://github.com/mozilla/pdf.js) | Renders PDF pages locally when the PDF appears scanned and text extraction is too short. |
+| `tesseract.js` | `^7.0.0` | [naptha/tesseract.js](https://github.com/naptha/tesseract.js) | Performs local OCR on rendered scanned-PDF pages. The release caches `eng.traineddata` under `pm-material-hub/resources/ocr/eng.traineddata`. |
+| Tesseract OCR language data | `eng.traineddata` | [tesseract-ocr/tessdata](https://github.com/tesseract-ocr/tessdata) | English OCR model data. The current project only bundles English data; Chinese scanned-PDF OCR depends on adding Chinese traineddata later. |
+| `@napi-rs/canvas` | `^0.1.100` | [Brooooooklyn/canvas](https://github.com/Brooooooklyn/canvas) | Creates a Node.js canvas so PDF pages can be rendered to images for OCR. |
+| `officeparser` | `^7.2.1` | [harshankur/officeParser](https://github.com/harshankur/officeParser) | Parses PPT/PPTX and DOC files for slide text, tables, notes, image references, and slide evidence IDs. |
+| `sharp` | `^0.35.1` | [lovell/sharp](https://github.com/lovell/sharp) | Reads image metadata, crops PPT favorite selections, and processes image backgrounds. |
+| `adm-zip` | `^0.5.17` | [cthackers/adm-zip](https://github.com/cthackers/adm-zip) | Reads PPTX internal XML for favorite-selection text extraction and template analysis. |
+| Microsoft PowerPoint COM | local Office capability | Microsoft Office local installation | Exports true PPT/PPTX page PNG previews so original slide rendering matches PowerPoint. |
+
+OCR is only used as a fallback. `pm-material-hub/src/lib/extractors.ts` first tries `pdf-parse`; if the extracted text is too short, it calls `pm-material-hub/scripts/ocr-pdf.cjs`, which combines `pdfjs-dist`, `@napi-rs/canvas`, and `tesseract.js` locally.
 
 The generated JSON lives under `pm-material-hub/data/local-json-indexes/`. Model extraction reads this bounded local JSON; the model does not read the original PDF, Word, Excel, PPT, or image files directly.
 

@@ -452,7 +452,9 @@ async function buildBlueprint(
       layoutSource: 'Preserve each workspace page layout unless a minor hierarchy adjustment improves readability.',
       scenarioTemplateRule: 'If templateId is present, keep the scenario template and slotId mapping. Do not invent a different layout. Slots with role=auto_title are generated from page title/headline, not from workspace cards.',
       slideRule: 'Items with type=slide are original PPT pages. Do not rewrite their content. Keep them as full-slide image blocks.',
+      pptSelectionRule: 'Items with type=ppt_selection are PM-selected regions from PPT. For normal layouts, use their extracted editable text and rewrite it as presentation copy instead of treating them as pasted images. Only scenario image slots may render ppt_selection as an image.',
       styleRule: 'Choose a candidateTemplateStyles item for each generated page and return its id as referenceSlideId. Match its layoutFamily, visualTone, hierarchy, image/text balance, and content density.',
+      pageNumberRule: 'Do not reuse page numbers, footers, corner badges, or decorative marks from source PPT files or template previews. The renderer will add fresh page numbers in final order.',
       coverageRule: 'Every input item must appear as a block unless it is explicitly merged with another block from the same page. Blocks must use an existing input deckId only.',
       densityRule: 'For module/product cards, keep 4-6 factual bullets. For certificate cards, include certificate number, report reference, issue date, holder, standards, or certification result when present. For image cards, do not include asset-management captions or usage notes.',
       scenarioFitRule: 'For scenario templates, fill the slot without overflow. Rewrite the dragged card into presentation-ready Chinese. For scenario-capability-grid-2, the renderer owns the section titles; return 3-4 coherent Chinese bullets for each text slot and keep every bullet short enough to fit the fixed box. Use bullet-list style consistently. For larger scenario slots, use one short title plus 4-6 factual bullets. Do not paste raw card text after your rewritten bullets.',
@@ -516,6 +518,7 @@ Language rule: the final presentation is for Chinese product managers. Write all
 Reference the selected Slides_Template page as a concrete design pattern, not only as a color palette.
 If an input page has templateId/scenarioTemplate, keep the provided slotId mapping and return blocks for content slots only. Do not assign any card to an auto_title slot; write the page title/headline for that slot through the page title fields. Do not change it to a generic layout.
 For scenario templates, the renderer has fixed slot sizes. Rewrite the card content into coherent presentation copy instead of copying raw extraction text. For scenario-capability-grid-2, the renderer will use fixed section titles, so focus on returning 3-4 short Chinese bullets for each text slot. Use bullet-list content consistently; do not return paragraph-only content. For larger scenario slots, use enough content to make the slot look filled but not crowded: overview slots should contain 4-5 useful factual bullets; benefits/bullets slots should contain 5-6 useful bullets. Do not paste raw card text after the rewritten bullets.
+For ppt_selection cards in normal layouts, use the extracted editable text and rewrite it into editable bullets or short copy. Do not treat a ppt_selection as an image unless it is explicitly placed in an image slot of a scenario template.
 Before returning JSON, check your own output as if it will be shown directly to the PM. Do not use ellipsis. If text is too long, rewrite it shorter instead of ending with "...".
 If the user asks for a dark background, every non-original-PPT generated page MUST use visualTone "dark".
 Represent every workspace card. Do not drop low-level evidence cards such as certifications, parameters, comparisons, or customer cases.
@@ -524,6 +527,7 @@ For certificate cards, keep certificate number, report reference, issue date, ho
 For image cards, treat body text as internal asset guidance; do NOT place usage notes such as "suitable as sales slide product image" in any title or bullet.
 Never return a block deckId that is not present in the input payload.
 Do not expose source file names, chunk ids, extraction method, image dimensions, or internal card metadata in titles, kicker, body, or bullets.
+Do not reuse source PPT or template page numbers, footers, corner labels, page badges, or decorative corner marks. The final renderer owns page numbering.
 Rewrite card content into concise presentation copy. Avoid repeating the same sentence as both paragraph and bullet.
 Follow the user's generationInstruction when it is present, but do not invent unsupported technical claims.
 Do not invent technical claims. Keep all original PPT page items as image-only blocks.`;
@@ -573,9 +577,9 @@ function renderTextBlock(item: EmbeddedItem, block: BlueprintBlock) {
   const bullets = (block.bullets?.length ? block.bullets : splitBullets(item)).slice(0, 6);
   return `<article class="block ${block.emphasis === 'hero' ? 'is-hero' : ''}">
     <div class="block-meta">${escapeHtml(item.subtitle || item.type || 'Material')}</div>
-    <h3>${escapeHtml(block.title || item.title)}</h3>
-    ${item.body ? `<p>${escapeHtml(item.body)}</p>` : ''}
-    ${bullets.length ? `<ul>${bullets.map(bullet => `<li>${escapeHtml(bullet)}</li>`).join('')}</ul>` : ''}
+    <h3 contenteditable="true">${escapeHtml(block.title || item.title)}</h3>
+    ${item.body ? `<p contenteditable="true">${escapeHtml(item.body)}</p>` : ''}
+    ${bullets.length ? `<ul contenteditable="true">${bullets.map(bullet => `<li>${escapeHtml(bullet)}</li>`).join('')}</ul>` : ''}
     <footer>${escapeHtml(item.sourceFile || '')}${item.chunkIds?.length ? ` · ${escapeHtml(item.chunkIds.join(', '))}` : ''}</footer>
   </article>`;
 }
@@ -615,7 +619,7 @@ function renderPage(page: EmbeddedPage, blueprintPage: BlueprintPage, pageIndex:
           <span>${escapeHtml(page.title || '')}</span>
         </header>
         <div class="content-grid ${layoutClass(blueprintPage.layout || page.layout)}">
-          ${blocks.map(({ item, block }) => item.type === 'image' || item.type === 'slide' || item.type === 'ppt_selection'
+          ${blocks.map(({ item, block }) => item.type === 'image' || item.type === 'slide'
             ? renderImageBlock(item, block)
             : renderTextBlock(item, block)
           ).join('')}
@@ -637,8 +641,8 @@ function renderTextBlockV2(item: EmbeddedItem, block: BlueprintBlock) {
   const bullets = mergeBullets(block.bullets, item, limit);
   const title = preferSourceLanguage(block.title, item.title);
   return `<article class="block ${block.emphasis === 'hero' ? 'is-hero' : ''}">
-    <h3>${escapeHtml(title)}</h3>
-    ${bullets.length ? `<ul>${bullets.map(bullet => `<li>${escapeHtml(bullet)}</li>`).join('')}</ul>` : ''}
+    <h3 contenteditable="true">${escapeHtml(title)}</h3>
+    ${bullets.length ? `<ul contenteditable="true">${bullets.map(bullet => `<li>${escapeHtml(bullet)}</li>`).join('')}</ul>` : ''}
   </article>`;
 }
 
@@ -767,11 +771,14 @@ function renderScenarioPage(page: EmbeddedPage, blueprintPage: BlueprintPage, pa
 
   return `<section class="slide scenario-slide" data-template-id="${escapeHtml(page.scenarioTemplate.id)}">
     <img class="scenario-bg" src="${page.scenarioBackgroundDataUri}" alt="${escapeHtml(page.scenarioTemplate.label)}">
+    <div class="template-artifact-mask template-artifact-mask-left"></div>
+    <div class="template-artifact-mask template-artifact-mask-right"></div>
     ${page.scenarioTemplate.slots.map(slot => {
       if (slot.role === 'auto_title') return renderScenarioTitleSlot(slot, autoTitle);
       const placed = itemBySlot.get(slot.id);
       return renderScenarioSlot(slot, placed?.item, placed?.block, page.scenarioTemplate?.id);
     }).join('')}
+    <div class="page-number" contenteditable="true">${pageIndex + 1}</div>
   </section>`;
 }
 
@@ -807,25 +814,26 @@ function renderPageV2(page: EmbeddedPage, blueprintPage: BlueprintPage, pageInde
 
   return `<section class="slide tone-${visualTone} ${allSlides ? 'slide-native' : ''}">
     ${allSlides && blocks.length === 1
-      ? renderImageBlockV2(blocks[0].item, blocks[0].block)
+      ? `${renderImageBlockV2(blocks[0].item, blocks[0].block)}<div class="page-number page-number-native" contenteditable="true">${pageIndex + 1}</div>`
       : `<header class="slide-header">
           <div>
-            <div class="kicker">${escapeHtml(preferSourceLanguage(blueprintPage.kicker, page.title || `Page ${pageIndex + 1}`))}</div>
+            <div class="kicker">${escapeHtml(preferSourceLanguage(blueprintPage.kicker, page.title || ''))}</div>
             <h2>${escapeHtml(preferSourceLanguage(blueprintPage.headline || blueprintPage.title, page.title || `Page ${pageIndex + 1}`))}</h2>
           </div>
         </header>
         <div class="content-grid ${layoutClassV2(renderLayout)}">
-          ${blocks.map(({ item, block }) => item.type === 'image' || item.type === 'slide' || item.type === 'ppt_selection'
+          ${blocks.map(({ item, block }) => item.type === 'image' || item.type === 'slide'
             ? renderImageBlockV2(item, block)
             : renderTextBlockV2(item, block)
           ).join('')}
-        </div>`}
+        </div>
+        <div class="page-number" contenteditable="true">${pageIndex + 1}</div>`}
   </section>`;
 }
 
 function renderHtml(title: string, pages: EmbeddedPage[], blueprint: GenerationBlueprint, template: TemplateReference, finalizedBy: string, warnings: string[], forceDark = false) {
   const css = `:root{--teal:#009999;--ink:#172b36;--muted:#64727c;--line:#d7e1e4;--soft:#eef3f4;--accent:#f4a100}*{box-sizing:border-box}body{margin:0;background:#dfe7ea;color:var(--ink);font-family:Arial,"Microsoft YaHei",sans-serif}.preview-toolbar{position:sticky;top:0;z-index:50;height:54px;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 22px;box-shadow:0 6px 18px rgba(18,42,52,.08)}.preview-toolbar strong{font-size:14px}.preview-toolbar span{font-size:12px;color:var(--muted);margin-left:10px}.toolbar-actions{display:flex;gap:10px}.toolbar-actions a,.toolbar-actions button{border:1px solid var(--line);border-radius:6px;background:white;color:var(--ink);font-size:13px;font-weight:700;padding:8px 13px;text-decoration:none;cursor:pointer}.toolbar-actions button{background:var(--teal);border-color:var(--teal);color:white}.deck{width:100%;padding-top:10px}.slide{width:1280px;height:720px;margin:28px auto;background:#fbfdfd;position:relative;overflow:hidden;box-shadow:0 18px 45px rgba(18,42,52,.18);padding:42px 52px;page-break-after:always}.slide:before{content:"";position:absolute;left:0;top:0;width:9px;height:100%;background:var(--teal)}.slide-header{display:flex;justify-content:space-between;gap:32px;align-items:flex-start;margin-bottom:28px}.kicker{font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:var(--teal);font-weight:700}.slide-header h2{margin:6px 0 0;font-size:34px;line-height:1.12;max-width:850px}.slide-header span{font-size:13px;color:var(--muted);max-width:260px;text-align:right}.content-grid{height:560px;display:grid;gap:18px}.layout-single{grid-template-columns:1fr}.layout-two-columns{grid-template-columns:1fr 1fr}.layout-left-main-right-stack{grid-template-columns:1.18fr .82fr;grid-template-rows:1fr 1fr}.layout-left-main-right-stack>:first-child{grid-row:1/3}.layout-two-rows{grid-template-rows:1fr 1fr}.layout-four-grid{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}.block,.image-block{border:1px solid var(--line);background:white;padding:22px;min-height:0;overflow:hidden;display:flex;flex-direction:column}.block.is-hero{border-top:5px solid var(--teal)}.block-meta{font-size:12px;color:var(--teal);font-weight:700;text-transform:uppercase;margin-bottom:8px}h3{font-size:24px;line-height:1.18;margin:0 0 10px}p{font-size:15px;line-height:1.5;color:#334650;margin:0 0 12px}ul{margin:4px 0 0;padding-left:20px}li{font-size:15px;line-height:1.45;margin:6px 0}footer{margin-top:auto;padding-top:12px;font-size:11px;color:#829098}.image-block{display:grid;grid-template-columns:1.1fr .9fr;gap:18px;align-items:center}.image-frame{height:100%;min-height:210px;background:var(--soft);display:flex;align-items:center;justify-content:center}.image-frame img{max-width:100%;max-height:100%;object-fit:contain}.slide-image-block{position:absolute;inset:0;background:#111;display:flex;align-items:center;justify-content:center}.slide-image-block img{width:100%;height:100%;object-fit:contain}.slide-native{padding:0}.slide-native:before{display:none}.missing-image{color:#9aa6ad;font-size:18px}.notes{width:1280px;margin:0 auto 28px;color:#667782;font-size:12px}@media print{.preview-toolbar{display:none}body{background:white}.deck{padding-top:0}.slide{margin:0;box-shadow:none}}`;
-  const styleCss = `.slide.tone-dark{background:#101820;color:#f5f8f9}.slide.tone-dark:after{content:"";position:absolute;right:-120px;top:-160px;width:420px;height:420px;background:rgba(0,153,153,.2);transform:rotate(24deg)}.slide.tone-dark .slide-header h2,.slide.tone-dark h3{color:#fff}.slide.tone-dark p,.slide.tone-dark li{color:#d7e1e4}.slide.tone-dark .block,.slide.tone-dark .image-block{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.15)}.slide.tone-dark .image-frame{background:transparent}.layout-product-showcase{grid-template-columns:1.05fr .95fr}.layout-product-showcase .image-block{grid-column:1/3;grid-template-columns:1fr .95fr;padding:30px}.layout-image-focus{grid-template-columns:1fr}.layout-image-focus .image-block{grid-template-columns:1.3fr .7fr}.layout-case-story{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}.layout-case-story .block:first-child{grid-column:1/3;background:var(--ink);color:white}.layout-case-story .block:first-child h3,.layout-case-story .block:first-child li{color:white}.layout-section-overview{grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr)}.layout-headline-bullets{grid-template-columns:1fr 1fr}.block-meta,footer,.notes{display:none!important}.block{justify-content:flex-start}.block h3{font-size:26px}.block ul{padding-left:0;list-style:none}.block li{position:relative;padding-left:20px}.block li:before{content:"";position:absolute;left:0;top:.68em;width:7px;height:7px;background:var(--teal)}.slide.tone-dark .block li:before{background:#22d3d3}.scenario-slide{padding:0;background:#010226}.scenario-slide:before{display:none}.scenario-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.scenario-slot{position:absolute;z-index:2;overflow:hidden}.scenario-slot-image{display:flex;align-items:center;justify-content:center;background:transparent!important}.scenario-slot-image img{max-width:100%;max-height:100%;object-fit:contain}.scenario-slot-text{padding:14px 16px;color:#fff}.scenario-slot-text h2{font-size:28px;line-height:1.16;margin:0;font-weight:800;color:#fff}.scenario-slot-text h3{font-size:22px;line-height:1.18;margin:0 0 10px;font-weight:800;color:#00ffcf}.scenario-slot-text p{font-size:20px;line-height:1.26;margin:0;color:#fff}.scenario-slot-text ul{margin:0;padding-left:20px}.scenario-slot-text li{font-size:16px;line-height:1.34;margin:6px 0;color:#fff}.scenario-slot-bullets{color:#03141b}.scenario-slot-bullets h3,.scenario-slot-bullets p,.scenario-slot-bullets li{color:#03141b}.scenario-slot-bullets h3{font-size:24px}.scenario-slot-overview p{font-size:20px}.scenario-slot-empty{display:block}`;
+  const styleCss = `.slide.tone-dark{background:#101820;color:#f5f8f9}.slide.tone-dark:after{content:"";position:absolute;right:-120px;top:-160px;width:420px;height:420px;background:rgba(0,153,153,.2);transform:rotate(24deg)}.slide.tone-dark .slide-header h2,.slide.tone-dark h3{color:#fff}.slide.tone-dark p,.slide.tone-dark li{color:#d7e1e4}.slide.tone-dark .block,.slide.tone-dark .image-block{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.15)}.slide.tone-dark .image-frame{background:transparent}.layout-product-showcase{grid-template-columns:1.05fr .95fr}.layout-product-showcase .image-block{grid-column:1/3;grid-template-columns:1fr .95fr;padding:30px}.layout-image-focus{grid-template-columns:1fr}.layout-image-focus .image-block{grid-template-columns:1.3fr .7fr}.layout-case-story{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}.layout-case-story .block:first-child{grid-column:1/3;background:var(--ink);color:white}.layout-case-story .block:first-child h3,.layout-case-story .block:first-child li{color:white}.layout-section-overview{grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr)}.layout-headline-bullets{grid-template-columns:1fr 1fr}.block-meta,footer,.notes{display:none!important}.block{justify-content:flex-start}.block h3{font-size:26px}.block ul{padding-left:0;list-style:none}.block li{position:relative;padding-left:20px}.block li:before{content:"";position:absolute;left:0;top:.68em;width:7px;height:7px;background:var(--teal)}.slide.tone-dark .block li:before{background:#22d3d3}.page-number{position:absolute;right:28px;bottom:18px;z-index:10;min-width:28px;height:22px;padding:2px 8px;border-radius:11px;background:rgba(255,255,255,.86);color:#59666d;font-size:12px;font-weight:700;text-align:center;line-height:18px}.tone-dark .page-number{background:rgba(0,0,0,.35);color:#d7e1e4}.page-number-native{background:rgba(255,255,255,.72)}.scenario-slide{padding:0;background:#010226}.scenario-slide:before{display:none}.scenario-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.template-artifact-mask{position:absolute;z-index:1;bottom:0;height:30px;background:#010226}.template-artifact-mask-left{left:0;width:260px}.template-artifact-mask-right{right:0;width:260px}.scenario-slot{position:absolute;z-index:2;overflow:hidden}.scenario-slot-image{display:flex;align-items:center;justify-content:center;background:transparent!important}.scenario-slot-image img{max-width:100%;max-height:100%;object-fit:contain}.scenario-slot-text{padding:14px 16px;color:#fff}.scenario-slot-text h2{font-size:28px;line-height:1.16;margin:0;font-weight:800;color:#fff}.scenario-slot-text h3{font-size:22px;line-height:1.18;margin:0 0 10px;font-weight:800;color:#00ffcf}.scenario-slot-text p{font-size:20px;line-height:1.26;margin:0;color:#fff}.scenario-slot-text ul{margin:0;padding-left:20px}.scenario-slot-text li{font-size:16px;line-height:1.34;margin:6px 0;color:#fff}.scenario-slot-bullets{color:#03141b}.scenario-slot-bullets h3,.scenario-slot-bullets p,.scenario-slot-bullets li{color:#03141b}.scenario-slot-bullets h3{font-size:24px}.scenario-slot-overview p{font-size:20px}.scenario-slot-empty{display:block}`;
   const scenarioFitCss = `[contenteditable]{outline:none}[contenteditable]:focus{outline:none}.scenario-slot-text{display:flex;flex-direction:column;justify-content:flex-start;word-break:break-word}.scenario-slot-overview{padding:18px 18px}.scenario-slot-overview h3{font-size:20px;line-height:1.12;margin-bottom:8px}.scenario-slot-overview p{font-size:15px;line-height:1.23;margin:0}.scenario-slot-overview ul{padding-left:18px;margin:0}.scenario-slot-overview li{font-size:14.5px;line-height:1.22;margin:3px 0;white-space:normal}.scenario-slot-bullets{padding:24px 42px}.scenario-slot-bullets h3{font-size:22px;line-height:1.12;margin-bottom:10px;color:#03141b}.scenario-slot-bullets ul{padding-left:18px;margin:0}.scenario-slot-bullets li{font-size:14.5px;line-height:1.22;margin:4px 0;color:#03141b;white-space:normal}.scenario-slot-auto_title{padding:0 0 0 0;justify-content:center}.scenario-slot-auto_title h2{font-size:28px;line-height:1.12}.scenario-slot-image{padding:0}.scenario-slot-image img{width:100%;height:100%;object-fit:contain}.scenario-slide[data-template-id="scenario-capability-grid-2"] .scenario-slot-overview{padding:14px 16px}.scenario-slide[data-template-id="scenario-capability-grid-2"] .scenario-slot-overview h3{font-size:17px;line-height:1.1;margin-bottom:6px}.scenario-slide[data-template-id="scenario-capability-grid-2"] .scenario-slot-overview ul{padding-left:15px}.scenario-slide[data-template-id="scenario-capability-grid-2"] .scenario-slot-overview li{font-size:12.4px;line-height:1.15;margin:2px 0}.scenario-slide[data-template-id="scenario-capability-grid-2"] .scenario-slot-overview p{font-size:12.6px;line-height:1.18}`;
   const pageHtml = pages.map((page, index) => renderPageV2(page, blueprint.pages?.[index] || {}, index, forceDark)).join('\n');
   const warningHtml = warnings.length ? `<div class="notes">Generated by: ${escapeHtml(finalizedBy)} · Template: ${escapeHtml(template.fileName)} · ${warnings.map(escapeHtml).join(' · ')}</div>` : `<div class="notes">Generated by: ${escapeHtml(finalizedBy)} · Template: ${escapeHtml(template.fileName)}</div>`;
@@ -907,7 +915,7 @@ export async function generateHtmlPresentation(inputPages: DeckPage[], requested
   const forceDark = wantsDarkTheme(generationInstruction);
   const candidateStyles = pickTemplateStyles(styleLibrary, {
     prefersDark: forceDark,
-    hasImage: embedded.pages.some(page => page.items.some(item => item.type === 'image' || item.imageDataUri)),
+    hasImage: embedded.pages.some(page => page.items.some(item => item.type === 'image' || item.type === 'slide')),
     itemCount: embedded.pages.reduce((sum, page) => sum + page.items.length, 0),
     wantsCase: wantsCaseStyle(generationInstruction) || embedded.pages.some(page => page.items.some(item => /case|案例/i.test(`${item.title} ${item.body}`))),
   });

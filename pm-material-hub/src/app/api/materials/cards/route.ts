@@ -5,6 +5,8 @@ import { getMaterialProfile } from '@/lib/materialProfiles';
 import { readManualCards } from '@/lib/manualCardGenerator';
 import { readPptSelectionCards } from '@/lib/pptSelectionFavorites';
 
+export const dynamic = 'force-dynamic';
+
 type MaterialCard = {
   id: string;
   type: 'document' | 'slide' | 'ppt_selection' | 'mlfb' | 'evidence' | 'product' | 'module' | 'accessory' | 'certificate'
