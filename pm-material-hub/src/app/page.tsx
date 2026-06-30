@@ -1797,7 +1797,7 @@ export default function Home() {
             <div className="order-3 bg-white/80 border border-siemens-stone/40 rounded-lg p-4 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <h2 className="text-sm font-semibold text-slate-700">可用物料卡片</h2>
+                  <h2 className="text-sm font-semibold text-slate-700">资料模块</h2>
                   <p className="text-xs text-slate-400 mt-1">
                     {selectedFolder ? '优先使用 PM 框选精选和主数据卡，原始候选仅用于核对' : '先在左侧选择资料分类'}
                   </p>
