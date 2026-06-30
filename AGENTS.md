@@ -1,40 +1,75 @@
 # Product Management Workspace - Agent Guide
 
-本文档是主目录 Agent 规则。子应用还有更详细的文档：
+This workspace contains PM Material Hub and shared presentation templates.
+
+## Product Direction
+
+PM Material Hub is a local-first Windows tool for Product Managers. The current product direction is not VPS-first and not SaaS-first.
+
+Runtime behavior must work through the application, bundled/local scripts, configured model services, Microsoft PowerPoint where needed, and local files. Codex is only for development and testing.
+
+## Repository Scope
+
+```text
+pm-material-hub/                  Next.js local app
+Slides_Template/                  shared PPT style templates
+Slides_Template/Scenario_Layouts/ scenario templates and preview assets
+启动 PM Material Hub.cmd           user-facing Chinese launcher
+Start PM Material Hub.cmd         user-facing English launcher
+```
+
+For implementation details, always read:
 
 ```text
 pm-material-hub/AGENTS.md
 ```
 
-## Scope / 范围
+## Local Green Runtime
 
-This workspace contains the PM Material Hub project and shared presentation templates.
+The user-facing path is one-click local startup from the release package:
 
-当前主目录包含：
+```text
+启动 PM Material Hub.cmd
+Start PM Material Hub.cmd
+```
 
-- `pm-material-hub/`：Next.js 应用
-- `Slides_Template/`：共享 PPT 风格模板和场景模板
-- `README.md` / `README.zh-CN.md`：项目说明
+These scripts should:
 
-## Product Boundary / 产品边界
+- find Node.js/npm or a future portable runtime under `runtime/node/`
+- install dependencies on first run when `node_modules/` is missing
+- start the app on `http://127.0.0.1:3001/`
+- open the browser automatically
 
-Codex is only for development and testing. Production behavior must run through the application, local scripts, configured model services, and local files.
+Manual PowerShell commands are acceptable for developers, but should not be the normal user path.
 
-Codex 只用于开发和测试。正式运行时不能依赖 Codex 对话；必须依赖应用代码、脚本、配置好的 Kimi/OpenAI-compatible 模型和本地文件。
+## Product Boundary
 
-## Runtime Goal / 运行目标
+Do not design features that require Codex at runtime.
 
-The app should work on a clean PM machine with:
+Do not assume source materials live inside this repository. PM source materials stay in a local workspace configured through the app.
 
-- the project files
-- installed dependencies
-- local PM source materials
-- Microsoft Office/PowerPoint when PPT previews are needed
-- optional Kimi/OpenAI-compatible model settings
+Do not optimize for VPS deployment unless the user explicitly reopens that direction. VPS environments normally lack Microsoft PowerPoint, which is required for true PPT/PPTX page previews and PM-selected slide regions.
 
-It should support local indexing, material cards, PPT favorite selection, HTML PPT preview generation, and HTML export without Codex.
+## Standard Material Folders
 
-## Template Rules / 模板规则
+Use these exact folder names:
+
+```text
+01_产品物料表格
+02_Catalogue_产品样本
+03_Manual_产品技术手册
+04_Slides_Technical&Sales
+05_Sales_Reference_成功案例
+06_Sales_Fighting_Guide
+07_文本资料
+08_产品图片素材
+09_认证证书
+10_FAQ_常见问题集
+```
+
+`01_产品物料表格` is authoritative product master data. Other folders may link to MLFBs but must not silently overwrite master data.
+
+## Templates
 
 Shared templates live in:
 
@@ -48,8 +83,6 @@ Scenario templates live in:
 Slides_Template/Scenario_Layouts/
 ```
 
-`template_Business graphic.pptx` is the broad visual/style reference. Real scene-specific designs should be added as scenario templates with fixed active regions.
-
 When adding or changing scenario templates:
 
 1. Keep the PPTX in `Slides_Template/Scenario_Layouts/`.
@@ -57,7 +90,7 @@ When adding or changing scenario templates:
 3. Configure active slots in `pm-material-hub/src/lib/scenarioTemplateLayouts.ts`.
 4. Do not leave analysis annotations such as red boxes or numbers in final preview images.
 
-## Safety / 安全
+## Safety
 
 Do not commit:
 
@@ -68,9 +101,9 @@ Do not commit:
 - `.next/`
 - `node_modules/`
 
-Do not delete user material files. If cleanup is needed, remove only one explicit generated file at a time and avoid batch deletion.
+Do not delete user material files. If cleanup is needed, remove only one explicit generated file at a time. Do not batch delete files or directories.
 
-## Development / 开发
+## Development
 
 Main app directory:
 
@@ -78,7 +111,7 @@ Main app directory:
 cd "C:\Users\Administrator\Desktop\Product Management\pm-material-hub"
 ```
 
-Common commands:
+Developer commands:
 
 ```powershell
 npm.cmd run dev
@@ -86,9 +119,3 @@ npm.cmd run build
 ```
 
 Use `npm.cmd` on Windows.
-
-For implementation details, always read:
-
-```text
-pm-material-hub/AGENTS.md
-```

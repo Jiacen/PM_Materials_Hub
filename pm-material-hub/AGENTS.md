@@ -1,29 +1,44 @@
 # PM Material Hub - Agent Handoff
 
-本文档同时面向后续 Codex/Agent 和人工开发者。English and Chinese are both included where helpful. Keep this file current when product behavior changes.
+This document is for Codex/agents and human developers working on the app.
 
-## Product Goal / 产品目标
+## Product Goal
 
 PM Material Hub is a local-first Product Manager workspace. It turns local product files into reusable material cards and generates editable HTML PPT pages from a visual workspace.
 
-PM Material Hub 是本地优先的产品经理工作台：本地资料生成物料卡，PM 拖拽组合页面，应用生成可编辑的 HTML 版本 PPT。
+The product is not chatbot-first, VPS-first, or SaaS-first. PMs should primarily work through material cards, page slots, PPT previews, Favorite selections, and scenario templates.
 
-The product is not chatbot-first. The PM should mostly work through material cards, page slots, PPT previews, and scenario templates.
+## Runtime Boundary
 
-## Hard Runtime Boundary / 运行边界
+Codex is a development and testing tool only. Production behavior must run through application code, local scripts, configured model services, Microsoft PowerPoint where needed, and local files.
 
-Codex is a development and testing tool only. Production generation must run through application code, scripts, configured model services, and local files.
+Do not design runtime features that require a Codex conversation.
 
-Codex 只用于开发和测试。正式使用时，物料生成、PPT 预览、PM 精选、HTML PPT 生成和导出都必须由应用、脚本、skill/模型配置和本地文件独立完成。
+## User-Facing Startup
 
-Do not design a feature that requires a Codex conversation at runtime.
-
-## Workspace / 工作区
-
-Default user material workspace:
+Release packages should be usable through one-click Windows launchers:
 
 ```text
-C:\Users\Administrator\Documents\PM_Materials
+../启动 PM Material Hub.cmd
+../Start PM Material Hub.cmd
+start-dev.cmd
+```
+
+The launcher should:
+
+- find Node.js/npm or a future portable runtime under `runtime/node/`
+- install dependencies on first run when `node_modules/` is absent
+- start the app on `http://127.0.0.1:3001/`
+- open the browser automatically
+
+Developer commands remain available, but should not be required from ordinary users.
+
+## Workspace
+
+Default example material workspace:
+
+```text
+C:\Users\<User>\Documents\PM_Materials
 ```
 
 App settings:
@@ -34,20 +49,22 @@ config/settings.json
 
 Do not assume source materials live in this repository.
 
-## Standard Folders / 标准文件夹
+## Standard Folders
 
 Use these exact folder names:
 
-1. `01_产品物料表格`
-2. `02_Catalogue_产品样本`
-3. `03_Manual_产品技术手册`
-4. `04_Slides_Technical&Sales`
-5. `05_Sales_Reference_成功案例`
-6. `06_Sales_Fighting_Guide`
-7. `07_文本资料`
-8. `08_产品图片素材`
-9. `09_认证证书`
-10. `10_FAQ_常见问题集`
+```text
+01_产品物料表格
+02_Catalogue_产品样本
+03_Manual_产品技术手册
+04_Slides_Technical&Sales
+05_Sales_Reference_成功案例
+06_Sales_Fighting_Guide
+07_文本资料
+08_产品图片素材
+09_认证证书
+10_FAQ_常见问题集
+```
 
 Folder behavior belongs in:
 
@@ -57,27 +74,30 @@ src/lib/materialProfiles.ts
 
 `01_产品物料表格` is authoritative product master data. Other folders may link to MLFBs but should not silently overwrite master data.
 
-## Implemented Frontend Behavior / 已实现前台行为
+## Local Indexing Contract
 
-The main UI supports:
+`POST /api/index/local` is deterministic local indexing. It must not call the LLM.
 
-- left material library with folder groups
-- local index controls
-- multi-page workspace
-- drag/drop and add-button placement
-- page add/delete/clear
-- current workspace draft persistence
-- latest generated HTML preview persistence
-- normal layouts plus scenario template layouts
-- PPT original page preview
-- PPT box selection and Favorite card creation
-- preview page with return and export buttons
+Local indexing may create:
 
-Current normal layouts include single-card, equal columns, large-left/two-right, equal rows, and four-grid.
+- raw document cards
+- MLFB candidate cards
+- image manifest cards
+- original PPT page cards and native slide previews
 
-Scenario template layouts are now preferred for real Siemens-style fixed page designs.
+Local indexing must not create refined cards or hard-coded pilot cards.
 
-## PPT/PPTX Contract / PPT 处理契约
+For `03_Manual_产品技术手册`, local indexing should only expose raw document cards and MLFB candidates. Refined per-MLFB cards are generated only after model extraction or an explicit manual-card generation workflow.
+
+## Refined Card Contract
+
+Refined cards are generated from local raw JSON or bounded context through the configured model service.
+
+For folders where MLFB coverage is enforced, especially `03_Manual_产品技术手册`, the target is one reusable card per MLFB when the source evidence supports it. If the model merges multiple MLFB values into one card, server-side logic should split or backfill coverage without inventing unsupported facts.
+
+Refined cards must preserve factual IDs, MLFBs, standards, certificate numbers, prices, and dates.
+
+## PPT/PPTX Contract
 
 PPT/PPTX has two independent material layers:
 
@@ -102,9 +122,7 @@ PM Favorite selection:
 - crops the user-selected rectangle
 - creates a reusable `ppt_selection` card
 
-For PPT favorite cards in PM-selected content, no extra “select content” button is needed. For PDF/manual/Word cards, content-selection controls should remain.
-
-## HTML PPT Generation / HTML PPT 生成
+## HTML PPT Generation
 
 Main route:
 
@@ -112,7 +130,7 @@ Main route:
 POST /api/presentations/generate-html
 ```
 
-Preview route:
+Preview routes:
 
 ```text
 GET /api/presentations/preview/[id]
@@ -132,23 +150,17 @@ GET/POST/DELETE /api/workspace/draft
 data/workspace-draft.json
 ```
 
-Generation is handled in:
-
-```text
-src/lib/htmlPresentationGenerator.ts
-```
-
 Generation rules:
 
 - Workspace cards define content and rough structure.
 - Kimi/OpenAI-compatible model rewrites titles, bullets, and scenario-slot copy.
 - Deterministic renderer outputs final HTML.
 - Text must remain editable through `contenteditable`.
-- Original full PPT pages should stay image-only.
-- Internal card notes and image usage hints must not appear in final PPT.
+- Original full PPT pages stay image-only.
+- Internal card notes, source filenames, chunk IDs, and image usage hints must not appear in final PPT.
 - Generated preview metadata must remain available after returning to the main page.
 
-## Templates / 模板
+## Templates
 
 Broad style library:
 
@@ -175,25 +187,8 @@ Scenario template rules:
 - Text slots accept document/manual/refined/PPT-selection cards and render rewritten text.
 - Image slots accept image/slide/PPT-selection cards and render embedded images.
 - Red boxes or numbers used in annotated screenshots are analysis marks only and must not appear in final preview assets.
-- For `scenario-capability-grid-2`, section titles are fixed by the renderer to avoid broken model-generated titles.
 
-When adding a new real PPT scenario template:
-
-1. Put the PPTX in `Slides_Template/Scenario_Layouts/`.
-2. Provide or generate a clean background/preview image.
-3. Define slots in `src/lib/scenarioTemplateLayouts.ts`.
-4. Keep the PPT design as background and only replace active regions.
-5. Build and test with generated preview.
-
-Helper:
-
-```text
-scripts/inspect-scenario-template.cjs
-```
-
-This can inspect PPTX geometry, but complex templates still need human review.
-
-## Image Rules / 图片规则
+## Image Rules
 
 Image route:
 
@@ -209,7 +204,7 @@ src/lib/imageBackgroundRemoval.ts
 
 Do not force background removal on full original PPT slide previews. They must preserve original slide appearance.
 
-## Model Rules / 模型规则
+## Model Rules
 
 The configured LLM client is OpenAI-compatible and commonly used with Moonshot/Kimi.
 
@@ -241,7 +236,7 @@ If the model fails, deterministic fallback is allowed, but it must be labelled i
 - `GET/POST /api/settings/llm`
 - `GET/POST /api/settings/prompts`
 
-## Development Notes / 开发注意
+## Development Notes
 
 - Use `npm.cmd`, not `npm`, on Windows PowerShell.
 - `npm.cmd run dev` uses webpack because Turbopack dev had local Windows serving issues.
@@ -251,4 +246,4 @@ If the model fails, deterministic fallback is allowed, but it must be labelled i
 - Do not delete user source files.
 - Do not commit generated `data/`, local settings, `.next/`, or `node_modules/`.
 - Prefer structured parsing and deterministic validation over brittle string-only hacks.
-- Keep edits scoped to the current product behavior unless the user explicitly asks for refactoring.
+- Keep edits scoped to current product behavior unless the user explicitly asks for refactoring.

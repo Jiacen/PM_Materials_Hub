@@ -180,83 +180,6 @@ function cardsFromAiJson(folderName: string, sourceFile: string, ai: any): Mater
   });
 }
 
-function buildManualPilotCard(folderName: string, sourceFile: string): MaterialCard | null {
-  if (!folderName.startsWith('03_') || sourceFile !== 'et200bl_system_manual_zh-CHS_zh-CHS.pdf') {
-    return null;
-  }
-
-  return {
-    id: `${safeId(sourceFile)}-pilot-6ES7155-8AR00-0AN0`,
-    type: 'module',
-    stage: 'ai',
-    title: 'IM 155-8 PN 接口模块',
-    subtitle: '6ES7155-8AR00-0AN0 · MLFB 试点卡',
-    body: 'ET 200BL 的 PROFINET IO 接口模块。当前内容仅整理系统手册中可直接核实的信息；模块自身的完整电气与通信参数仍应以接口模块设备手册为准。',
-    sourceFile,
-    folderName,
-    chunkIds: ['chunk_0006', 'chunk_0009', 'chunk_0010', 'chunk_0011'],
-    sections: [
-      {
-        id: 'identity',
-        label: '产品身份',
-        type: 'product_overview',
-        items: [
-          '订货号：6ES7155-8AR00-0AN0。',
-          '产品名称：IM 155-8 PN 接口模块。',
-          '用途：将 ET 200BL 分布式 I/O 系统作为 PROFINET IO 设备连接到 IO 控制器。',
-        ],
-      },
-      {
-        id: 'parameters',
-        label: '技术参数',
-        type: 'technical_spec',
-        items: [
-          '额定工作电压：24 V DC；容差范围：20.4 V DC 至 28.8 V DC（系统手册给出的 ET 200BL 系统供电条件）。',
-          '防护等级：IP20；属于开放式设备。',
-          '安装环境：机柜、控制柜、电气操作室或干燥室内环境。',
-          '安装位置：允许任意安装位置；建议优先采用水平安装。',
-          '安装方式：安装在标准安装导轨或 SIMATIC 系统导轨上。',
-          '通信接口：PROFINET IO。',
-          '尺寸、PROFINET 端口数量、通信速率以及 RT/IRT 支持：本系统手册未给出该 MLFB 的明确数值，需从接口模块设备手册补充。',
-        ],
-      },
-      {
-        id: 'system-conditions',
-        label: '技术特性',
-        type: 'technical_spec',
-        items: [
-          'ET 200BL 站最大机械组态为 16 个模块；这是系统级组态上限，不是接口模块设备手册中的完整性能参数。',
-          '地址空间取决于所用 CPU 和接口模块；本系统手册未给出该 MLFB 的完整地址空间数值。',
-          '支持 I&M0 至 I&M3 标识和维护数据，可用于检查设备组态、定位硬件更改和纠正设备错误。',
-          '可通过用户程序、STEP 7/HMI 或 CPU Web 服务器读取 I&M 数据。',
-          '支持通过 STEP 7 在线诊断或 MFCT 更新固件。',
-          '支持通过 STEP 7 或 MFCT 复位为出厂设置。',
-        ],
-      },
-      {
-        id: 'commissioning',
-        label: '调试要点',
-        type: 'technical_feature',
-        items: [
-          '作为 PROFINET IO 设备调试前，接口模块应处于出厂设置状态或已复位为出厂设置。',
-          '调试流程包括安装、连接电源与 PROFINET IO、组态 IO 控制器、下载组态、切换至 RUN、检查 LED 并测试输入输出。',
-        ],
-      },
-      {
-        id: 'limitations',
-        label: '限制与注意事项',
-        type: 'limitation',
-        items: [
-          '复位为出厂设置前，应确保接口模块在线可访问且未连接到 CPU。',
-          '复位为出厂设置可能导致总线段上的下游站发生故障。',
-          '复位后已安装的 I/O 模块处于未组态状态，接口模块不获取输入数据，也不输出数据。',
-          '系统手册明确指出：各模块的完整技术规范应查阅对应模块设备手册。',
-        ],
-      },
-    ],
-  };
-}
-
 function cardsFromRawJson(folderName: string, fileName: string, raw: any): MaterialCard[] {
   const sourceFile = raw?.source?.fileName || fileName.replace(/\.raw\.json$/, '');
   const chunks = Array.isArray(raw?.chunks) ? raw.chunks : [];
@@ -297,7 +220,7 @@ function cardsFromRawJson(folderName: string, fileName: string, raw: any): Mater
 
   if (!profile.showRawMlfbCards) return cards;
 
-  for (const mlfb of mlfbCandidates.slice(0, 8)) {
+  for (const mlfb of mlfbCandidates) {
     const evidence = findEvidenceSnippet(chunks, mlfb);
     cards.push({
       id: `${safeId(sourceFile)}-mlfb-${safeId(mlfb)}`,
@@ -378,10 +301,6 @@ export async function GET(req: Request) {
         }
         const aiIndex = findAiIndexForSource(folderName, sourceFile);
         const aiCards = aiIndex ? cardsFromAiJson(folderName, sourceFile, aiIndex) : [];
-        const pilotCard = buildManualPilotCard(folderName, sourceFile);
-        if (pilotCard) {
-          return [pilotCard, ...rawCards];
-        }
         return aiCards.length > 0 ? [...aiCards, ...slideCards, ...rawCards] : [...slideCards, ...rawCards];
       });
 

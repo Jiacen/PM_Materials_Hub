@@ -1,202 +1,158 @@
 # PM Material Hub App
 
-This is the Next.js application for PM Material Hub. It scans local product-management materials, creates reusable cards, supports a visual multi-page workspace, and generates editable HTML PPT previews and exports.
+This folder contains the local Next.js app used by PM Material Hub.
 
-## Setup
-
-```powershell
-npm.cmd install
-npm.cmd run dev
-```
-
-Open:
+Normal users should start the product from the repository root by double-clicking:
 
 ```text
-http://localhost:3001/
+启动 PM Material Hub.cmd
+Start PM Material Hub.cmd
 ```
 
-Production build:
+The app-level launcher is also available:
 
-```powershell
-npm.cmd run build
-npm.cmd run start
+```text
+start-dev.cmd
 ```
 
-Use `npm.cmd` on Windows. OCR and image processing use native dependencies, so do not copy `node_modules` between operating systems.
+It installs dependencies on first run, starts the app on `http://127.0.0.1:3001/`, and opens the browser automatically.
 
-## Runtime Requirements
+## Local Runtime Requirements
 
-Minimum runtime:
+Required:
 
-- Node.js dependencies installed from `package-lock.json`
-- Local PM material workspace configured in `config/settings.json`
-- Optional Kimi/OpenAI-compatible model settings for refined cards and generated presentation copy
+- Windows
+- Node.js LTS, unless a future release includes a portable Node runtime under `runtime/node/`
+- local PM source materials outside the repository
 
-For full PPT/PPTX support on Windows:
+For full PPT/PPTX support:
 
 - Microsoft PowerPoint installed
-- PowerPoint COM automation available for original slide PNG previews
+- PowerPoint COM automation available
 
 WPS Office is not supported by the current native preview renderer.
 
-## Core Workflow
+Optional:
 
-1. Configure the material workspace.
-2. Click **Sync** in the app.
-3. Generate or refresh local JSON indexes.
-4. Optionally run model extraction for refined material cards.
-5. Drag cards into the workspace.
-6. Select a normal layout or a scenario template.
-7. Click generate preview.
-8. Review the HTML PPT preview.
-9. Return to the workspace for edits or export the HTML file.
+- Kimi/OpenAI-compatible model base URL and API key for refined cards and generated presentation copy
 
-The app saves the workspace draft and the latest generated preview metadata, so returning from preview does not lose the current workspace or last generated output.
+## Product Scope
+
+PM Material Hub is a local PM material workspace, not a chatbot and not a VPS-first web service.
+
+The app supports:
+
+- local workspace setup
+- local file sync
+- raw JSON indexing
+- image material cards
+- PPT/PPTX original page previews
+- PM favorite selections from PPT pages
+- LLM-refined reusable cards
+- visual multi-page workspace editing
+- normal layouts and scenario templates
+- editable HTML PPT preview generation
+- standalone HTML export
 
 ## Standard Folders
 
 The configured material workspace should contain:
 
-1. `01_产品物料表格`
-2. `02_Catalogue_产品样本`
-3. `03_Manual_产品技术手册`
-4. `04_Slides_Technical&Sales`
-5. `05_Sales_Reference_成功案例`
-6. `06_Sales_Fighting_Guide`
-7. `07_文本资料`
-8. `08_产品图片素材`
-9. `09_认证证书`
-10. `10_FAQ_常见问题集`
+```text
+01_产品物料表格
+02_Catalogue_产品样本
+03_Manual_产品技术手册
+04_Slides_Technical&Sales
+05_Sales_Reference_成功案例
+06_Sales_Fighting_Guide
+07_文本资料
+08_产品图片素材
+09_认证证书
+10_FAQ_常见问题集
+```
 
-Folder behavior is defined in `src/lib/materialProfiles.ts`.
+Folder behavior is defined in:
 
-## Local Indexes
+```text
+src/lib/materialProfiles.ts
+```
+
+## Data Layers
 
 Generated data lives under `data/` and should not be committed.
 
 Important generated layers:
 
 - `data/local-json-indexes/`: raw local indexes and image manifests
-- `data/indexes/`: refined model output
-- `data/manual-cards/`: deterministic/manual-card pipeline output
-- `data/slide-previews/`: cached PowerPoint-rendered slide PNGs
-- `data/generated-html/`: generated HTML preview files
+- `data/indexes/`: model-refined output
+- `data/manual-cards/`: manual-card generation output, only after explicit generation
+- `data/slide-previews/`: PowerPoint-rendered slide PNG cache
+- `data/generated-html/`: generated HTML previews
 - `data/workspace-draft.json`: current workspace draft and latest preview metadata
+
+Local settings live in:
+
+```text
+config/settings.json
+```
+
+This file may contain local paths and API keys and must not be committed.
+
+## Local Index Versus Model Refinement
+
+Local JSON generation is deterministic and does not call the LLM. It should only create raw document cards, MLFB candidates, image manifests, and original PPT page cards.
+
+Refined material cards are generated only after the model extraction step or an explicit manual-card generation workflow.
+
+For `03_Manual_产品技术手册`, the expected refined output is one reusable card per MLFB when the source evidence supports MLFB extraction.
 
 ## PPT/PPTX Flow
 
 PPT/PPTX files produce:
 
-- `*.raw.json`: page-level text, lists, tables, notes, image references, slide numbers, and evidence IDs
-- true slide PNG previews under `data/slide-previews/`
-- optional `*.meta.json` refined reusable cards
-- `_folder.catalog.json` for lightweight routing
+- local raw JSON with page text, tables, notes, slide numbers, and evidence IDs
+- true slide PNG previews from Microsoft PowerPoint
+- original slide cards that remain draggable
+- optional model-refined reusable cards
 
-Original slide pages remain available as draggable cards. Refined content never replaces the original page layer.
+The original page layer must never be replaced or hidden by refined cards.
 
-### PM Favorite Selection
-
-From an original PPT page preview, the PM can drag a rectangle over a region and click **Favorite**. The app crops that region from the PowerPoint-rendered preview and creates a reusable `ppt_selection` card. This card can be dragged into text or image slots depending on the target layout.
+PM-selected PPT content is created by opening an original slide preview, selecting a rectangle, and clicking **Favorite**. The app crops the PowerPoint-rendered preview and creates a reusable `ppt_selection` card.
 
 ## HTML PPT Generation
 
-The generation API is:
+Generation API:
 
 ```text
 POST /api/presentations/generate-html
 ```
 
-It returns a preview id and URL. Preview files are stored locally under `data/generated-html/`.
-
-Preview route:
+Preview routes:
 
 ```text
 GET /api/presentations/preview/[id]
 GET /api/presentations/preview/[id]?download=1
 ```
 
-The generated preview includes toolbar buttons for returning to the workspace and exporting HTML. Export uses the browser save picker when available, with download fallback.
-
-Generation uses:
-
-- workspace pages and slot mapping as the structure source
-- Kimi/OpenAI-compatible model for title and copy rewriting
-- `Slides_Template/template_Business graphic.pptx` as a style library
-- scenario layouts from `Slides_Template/Scenario_Layouts/`
-- deterministic HTML rendering
-- image embedding and light-background removal for ordinary image cards
-
-Text in generated HTML is editable via `contenteditable`.
-
-## Scenario Templates
-
-Scenario templates are defined in:
+Generated previews are stored in:
 
 ```text
-src/lib/scenarioTemplateLayouts.ts
+data/generated-html/
 ```
 
-Template previews are served by:
+Text in generated HTML is editable through `contenteditable`.
 
-```text
-GET /api/assets/scenario-template?id=<templateId>
-```
+## Developer Commands
 
-Current scenario template assets live outside the app folder:
-
-```text
-../Slides_Template/Scenario_Layouts/
-```
-
-Current templates:
-
-- `scenario-product-benefits-1`
-- `scenario-capability-grid-2`
-
-Scenario slots are fixed active regions. Text slots receive rewritten model copy and deterministic fitting. Image slots receive embedded image content. Auto-title slots are generated and are not draggable.
-
-## Image Handling
-
-Image assets are served by:
-
-```text
-GET /api/assets/image
-```
-
-Normal image cards default to transparent PNG output after light-background removal. Use `transparent=0` only when the original background must be preserved.
-
-## Key API Routes
-
-- `POST /api/index/local`: generate or refresh local JSON indexes
-- `GET /api/materials/cards`: load frontend material cards
-- `GET /api/materials/catalog`: read lightweight routing catalogs
-- `POST /api/materials/context`: retrieve bounded context for model calls
-- `POST /api/extract/batch`: run model extraction against local JSON
-- `POST /api/presentations/favorite-selection`: create a PM favorite selection from a PPT page
-- `POST /api/presentations/generate-html`: generate HTML PPT preview
-- `GET /api/presentations/preview/[id]`: view or download generated HTML
-- `GET/POST/DELETE /api/workspace/draft`: persist workspace state
-- `GET/POST /api/settings/llm`: configure model endpoint
-- `GET/POST /api/settings/prompts`: configure per-folder prompts
-
-## Commands
+For development only:
 
 ```powershell
-# Product master data
-npm.cmd run index:local -- --folder-prefix 01 --force
-
-# Technical manuals
-npm.cmd run index:local -- --folder-prefix 03 --force
-
-# Slides
-npm.cmd run index:local -- --folder-prefix 04 --force
-
-# Image manifests
-npm.cmd run index:local -- --folder-prefix 08 --force
-
-# Build verification
+npm.cmd install
+npm.cmd run dev
 npm.cmd run build
 ```
+
+The user-facing path should remain the one-click launcher, not manual PowerShell commands.
 
 ## Data Safety
 

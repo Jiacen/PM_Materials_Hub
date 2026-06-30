@@ -102,6 +102,42 @@ function compact(value: unknown, maxLength = 180) {
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
 }
 
+function mlfbValuesFromProduct(product: any) {
+  const rawValues = Array.isArray(product?.mlfb)
+    ? product.mlfb
+    : String(product?.mlfb || '').split(/[,，、;；]/);
+  return [...new Set(rawValues.map(normalizeMlfb).filter(Boolean))] as string[];
+}
+
+function expandProductsToSingleMlfb(products: any[]) {
+  return products.flatMap((product) => {
+    const mlfbs = mlfbValuesFromProduct(product);
+    if (mlfbs.length <= 1) return [{ ...product, mlfb: mlfbs[0] || product?.mlfb || '' }];
+    return mlfbs.map((mlfb) => ({
+      ...product,
+      mlfb,
+      covered_mlfbs: [mlfb],
+      product_name: product?.product_name && !String(product.product_name).includes(mlfb)
+        ? `${product.product_name} · ${mlfb}`
+        : product?.product_name || mlfb,
+      extraction_source: product?.extraction_source || 'mlfb_split',
+    }));
+  });
+}
+
+function evidenceFacts(text: string, mlfb: string) {
+  const lines = text
+    .split(/\r?\n|[。；;]/)
+    .map(line => compact(line, 140))
+    .filter(Boolean);
+  const direct = lines.filter(line => line.includes(mlfb));
+  const technical = lines.filter(line => (
+    /\d|V\s*DC|PROFINET|RJ45|IP\d|RTD|TC|RS\s*422|RS\s*485|I\/O|DI|DQ|AI|AQ/i.test(line)
+    && !line.includes(mlfb)
+  ));
+  return [...new Set([...direct, ...technical])].slice(0, 5);
+}
+
 function deterministicPresentationFallback(rawIndex: any) {
   const slides = Array.isArray(rawIndex?.slides) ? rawIndex.slides : [];
   const excluded = /^(thank|thanks|目录|议程|挑战和机会|发现更多|常用链接)/i;
@@ -172,14 +208,11 @@ function deterministicPresentationFallback(rawIndex: any) {
 }
 
 function ensureMlfbCoverage(data: any, rawIndex: any) {
-  const products = Array.isArray(data?.products) ? [...data.products] : [];
+  const products = Array.isArray(data?.products) ? expandProductsToSingleMlfb(data.products) : [];
   const candidates = Array.isArray(rawIndex?.extracted?.mlfbCandidates)
     ? rawIndex.extracted.mlfbCandidates.map(normalizeMlfb).filter(Boolean)
     : [];
-  const existing = new Set(products.flatMap((product: any) => {
-    const values = Array.isArray(product?.mlfb) ? product.mlfb : [product?.mlfb];
-    return values.map(normalizeMlfb).filter(Boolean);
-  }));
+  const existing = new Set(products.flatMap(mlfbValuesFromProduct));
   const slides = Array.isArray(rawIndex?.slides) ? rawIndex.slides : [];
   const chunks = Array.isArray(rawIndex?.chunks) ? rawIndex.chunks : [];
 
@@ -191,6 +224,8 @@ function ensureMlfbCoverage(data: any, rawIndex: any) {
       ?.flatMap((table: any) => Array.isArray(table) ? table : [])
       .find((row: any) => Array.isArray(row) && row.some((cell: any) => String(cell).includes(mlfb)));
     const chunk = chunks.find((item: any) => String(item?.text || '').includes(mlfb));
+    const evidenceText = String(slide?.text || chunk?.text || '');
+    const facts = evidenceFacts(evidenceText, mlfb);
     const rowCells = Array.isArray(tableRow)
       ? tableRow.map((cell: any) => String(cell || '').trim()).filter(Boolean)
       : [];
@@ -224,9 +259,9 @@ function ensureMlfbCoverage(data: any, rawIndex: any) {
       item_type: mlfb.startsWith('6ES7193') ? 'accessory' : 'module',
       product_name: productName,
       mlfb,
-      summary: productName === mlfb ? '演示文稿中明确列出的订货型号。' : `演示文稿订货信息：${productName}`,
-      key_features: [],
-      technical_specs: [],
+      summary: productName === mlfb ? '资料中明确列出的订货型号。' : `资料中的订货信息：${productName}`,
+      key_features: facts.slice(0, 3),
+      technical_specs: facts.filter((text: string) => /\d|V\s*DC|PROFINET|RJ45|IP\d|RTD|TC|RS/i.test(text)).slice(0, 4),
       application_scenarios: [],
       release_info: releaseInfo,
       evidence_chunk_ids: evidenceId ? [evidenceId] : [],
@@ -300,6 +335,7 @@ Extract information strictly following the user's prompt.
 Use only evidence present in the raw JSON. Do not use external knowledge, assumptions, or prior memory.
 If a field is not supported by the raw JSON evidence, write "文档未明确说明".
 For a multi-page presentation, create multiple reusable topic cards when the source contains distinct themes. Do not collapse the entire deck into one giant product card.
+When extracted.mlfbCandidates contains MLFB values, create one reusable product card per MLFB. Do not merge multiple MLFB values into one card unless the user explicitly asks for a family-level summary.
 You MUST output valid JSON only. Do not wrap in markdown or any other text.
 User Rule: ${prompt}`;
 

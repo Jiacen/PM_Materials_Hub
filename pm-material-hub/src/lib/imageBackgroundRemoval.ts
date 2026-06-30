@@ -2,13 +2,13 @@ import sharp from 'sharp';
 
 export async function removeLightBackground(input: sharp.Sharp) {
   const resized = input.resize({ width: 1800, withoutEnlargement: true }).ensureAlpha();
-  const metadata = await resized.metadata();
-  const width = metadata.width || 1;
-  const height = metadata.height || 1;
-  const raw = await resized.raw().toBuffer();
-  const output = Buffer.from(raw);
+  const { data, info } = await resized.raw().toBuffer({ resolveWithObject: true });
+  const width = info.width || 1;
+  const height = info.height || 1;
+  const channels = info.channels || 4;
+  const output = Buffer.from(data);
 
-  for (let i = 0; i < output.length; i += 4) {
+  for (let i = 0; i < output.length; i += channels) {
     const r = output[i];
     const g = output[i + 1];
     const b = output[i + 2];
@@ -19,9 +19,9 @@ export async function removeLightBackground(input: sharp.Sharp) {
     const isNearLightGray = max >= 220 && min >= 205 && saturation <= 20;
 
     if (isLightBackground || isNearLightGray) {
-      output[i + 3] = 0;
+      output[i + channels - 1] = 0;
     } else if (max >= 225 && saturation <= 34) {
-      output[i + 3] = Math.min(output[i + 3], 90);
+      output[i + channels - 1] = Math.min(output[i + channels - 1], 90);
     }
   }
 
@@ -29,7 +29,7 @@ export async function removeLightBackground(input: sharp.Sharp) {
     raw: {
       width,
       height,
-      channels: 4,
+      channels,
     },
   }).png().toBuffer();
 }
