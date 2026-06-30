@@ -89,9 +89,38 @@ pm-material-hub/config/settings.json
 
 对于 `03_Manual_产品技术手册`：
 
-- 本地 JSON 阶段只显示原始文档卡和 MLFB 候选卡。
-- 精炼卡片必须通过大模型提取生成。
-- 启用 MLFB 覆盖的目录中，目标是一张 MLFB 对应一张可复用精炼卡。
+- 本地 JSON 阶段先按手册章节标题切分内容。
+- 每个章节会先做确定性的本地 digest 压缩，提取概览句、参数事实、操作/工程规则、警告与限制、诊断维护等生命周期事实、证据摘录和 MLFB 候选。
+- 这个 digest 过程不调用大模型；大模型精炼只读取压缩后的本地 JSON。
+- 精炼卡片是章节主题卡，例如安装、接线、组态、调试、诊断、维护、安全说明、限制条件和技术规范。
+- MLFB 只作为 `related_mlfbs` 关联标签，并用 01 产品主数据白名单过滤。
+- 03 会在本地 digest 和模型输出两个阶段过滤低价值内容，例如漏洞通知、安全更新通知、自动通知选项、固件签名/固件更新、通用网络安全公告、数据/归档完整性提醒、营销话术、版权/商标/免责声明、重复安全警告模板和空白占位。
+
+## 本地 JSON 使用的技术和思路
+
+本地 JSON 生成主要实现在：
+
+```text
+pm-material-hub/src/lib/localIndexer.ts
+pm-material-hub/src/lib/extractors.ts
+```
+
+本地解析使用的工具和能力包括：
+
+- `xlsx`：读取 Excel 产品主数据
+- `mammoth`：提取 Word `.docx` 原始文本
+- `pdf-parse`：提取 PDF 文本
+- PPT/PPTX 本地解析辅助逻辑：提取页面文本、表格、备注、页码和证据 ID
+- `sharp`：读取图片尺寸、格式、透明度等 manifest 信息
+- Microsoft PowerPoint COM 自动化：导出真实 PPT/PPTX 页面 PNG 预览
+
+生成结果保存在：
+
+```text
+pm-material-hub/data/local-json-indexes/
+```
+
+后续大模型精炼只读取这些经过本地压缩和结构化后的 JSON；模型不会直接读取原始 PDF、Word、Excel、PPT 或图片文件。
 
 ## PPT/PPTX 能力
 

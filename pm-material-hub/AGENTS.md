@@ -83,16 +83,23 @@ Local indexing may create:
 - MLFB candidate cards
 - image manifest cards
 - original PPT page cards and native slide previews
+- deterministic manual chapter digests for folder 03
 
 Local indexing must not create refined cards or hard-coded pilot cards.
 
-For `03_Manual_产品技术手册`, local indexing should only expose raw document cards and MLFB candidates. Refined per-MLFB cards are generated only after model extraction or an explicit manual-card generation workflow.
+For `03_Manual_产品技术手册`, local indexing is chapter based. It should split manuals by detected chapter headings and create a deterministic digest per chapter without calling the LLM. The digest should preserve overview lines, parameter facts, procedure rules, warnings or limits, lifecycle facts, evidence snippets, and MLFB candidates. LLM refinement should read these bounded digests, not full manual chapters.
+
+Do not implement folder 03 as one refined card per MLFB. Folder 03 refined cards are chapter/theme cards such as installation, wiring, configuration, commissioning, diagnostics, maintenance, safety notes, limitations, and technical specifications. MLFB values may appear only as `related_mlfbs` tags filtered through the folder 01 product master data.
+
+Folder 03 must filter low-value material during both local digest generation and model-output validation: vulnerability notices, security update notifications, automatic notification options, signed firmware or firmware update notices, generic cybersecurity advisories, data/archive integrity reminders, marketing copy, copyright/trademark/disclaimer text, repeated warning boilerplate, and empty placeholders should not become cards.
 
 ## Refined Card Contract
 
 Refined cards are generated from local raw JSON or bounded context through the configured model service.
 
-For folders where MLFB coverage is enforced, especially `03_Manual_产品技术手册`, the target is one reusable card per MLFB when the source evidence supports it. If the model merges multiple MLFB values into one card, server-side logic should split or backfill coverage without inventing unsupported facts.
+For folders where MLFB coverage is enforced, such as folder 02 catalogue extraction, the target is one reusable card per whitelisted MLFB when the source evidence supports it. If the model merges multiple MLFB values into one card, server-side logic should split or backfill coverage without inventing unsupported facts.
+
+Folder 03 is the exception: it is chapter/theme based and must not use MLFB coverage backfill.
 
 Refined cards must preserve factual IDs, MLFBs, standards, certificate numbers, prices, and dates.
 
@@ -217,6 +224,26 @@ Model usage should:
 - fit scenario slot sizes by shortening copy, not by dumping raw text
 
 If the model fails, deterministic fallback is allowed, but it must be labelled internally and must not invent claims.
+
+## Local JSON Technology Notes
+
+Local JSON generation is implemented mainly in:
+
+```text
+src/lib/localIndexer.ts
+src/lib/extractors.ts
+```
+
+Use local deterministic parsers before model calls:
+
+- `xlsx` for Excel product master rows
+- `mammoth` for Word `.docx` raw text
+- `pdf-parse` for PDF text
+- presentation extraction helpers for PPT/PPTX text, tables, notes, slide numbers, and evidence IDs
+- `sharp` for image metadata and image manifests
+- Microsoft PowerPoint COM automation only for true PPT/PPTX PNG page previews
+
+The configured model should receive bounded JSON from `data/local-json-indexes/`, never raw source files directly.
 
 ## Important API Routes
 

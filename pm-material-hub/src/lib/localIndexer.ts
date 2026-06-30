@@ -89,6 +89,93 @@ function inferManualChapterType(title: string, text: string) {
   return 'technical_feature';
 }
 
+function uniqueByText(items: string[], limit: number) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of items) {
+    const text = item.replace(/\s+/g, ' ').trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    result.push(text);
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
+function isLowValueManualText(value: string) {
+  return /漏洞|漏洞通知|安全漏洞|安全公告|安全更新|更新通知|通知设置|自动通知|签名固件|固件签名|固件更新|补丁|补丁程序|网络安全|工业网络安全|数据完整性|归档完整性|篡改|传输错误|订阅|newsletter|notification|security update|security advisory|vulnerability|firmware update|signed firmware|patch|marketing|portfolio|brochure|contact|copyright|trademark|免责声明|商标|版权|营销|宣传|亮点|价值主张/i.test(value);
+}
+
+function hasManualEngineeringSignal(value: string) {
+  return /安装|装配|接线|端子|连接|电源|电压|电流|通道|组态|配置|参数|调试|启动|诊断|报警|中断|故障|LED|维护|更换|复位|技术数据|技术规范|额定|尺寸|环境条件|温度|湿度|海拔|防护等级|PROFINET|PROFIBUS|RJ45|RS\s*485|RS\s*422|I\/O|DI|DQ|AI|AQ|RTD|TC|V\s*DC|mA|Hz|mm|IEC|EN\s*\d|UL|CE|IP\d/i.test(value);
+}
+
+function isLowValueManualChapter(title: string, text: string) {
+  const sample = `${title}\n${text.slice(0, 1200)}`;
+  if (!isLowValueManualText(sample)) return false;
+  return !hasManualEngineeringSignal(sample);
+}
+
+function extractManualDigest(title: string, text: string) {
+  const normalized = normalizeText(text);
+  const units = normalized
+    .split(/\n+|(?<=[。；;.!?])\s+/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => line.length >= 8 && line.length <= 420)
+    .filter((line) => !/^(page|copyright|all rights reserved|\d+)$|^[-–—_ ]+$/i.test(line))
+    .filter((line) => !isLowValueManualText(line) || hasManualEngineeringSignal(line));
+
+  const engineeringUnits = units.filter(hasManualEngineeringSignal);
+  const intro = uniqueByText(engineeringUnits.slice(0, 18), 4);
+  const specFacts = uniqueByText(units.filter((line) =>
+    /\d|V\s*DC|mA|A\b|Hz|mm|cm|kg|IP\d|PROFINET|PROFIBUS|RJ45|RS\s*485|RS\s*422|I\/O|DI|DQ|AI|AQ|RTD|TC|IEC|EN\s*\d|UL|CE/i.test(line)
+  ), 8);
+  const procedureFacts = uniqueByText(units.filter((line) =>
+    /step|press|select|install|connect|configure|parameter|restart|reset|mount|wire|set|enable|disable|check|步骤|选择|安装|连接|接线|组态|配置|参数|重启|复位|检查|设置/.test(line)
+  ), 8);
+  const warningFacts = uniqueByText(units.filter((line) =>
+    /warning|caution|danger|must|shall|only|do not|not permitted|risk|警告|危险|小心|必须|不得|不能|仅|风险|限制/.test(line)
+    && hasManualEngineeringSignal(line)
+  ), 5);
+  const keywordFacts = uniqueByText(units.filter((line) =>
+    /diagnos|alarm|interrupt|fault|error|LED|maintenance|commission|startup|诊断|报警|中断|故障|错误|维护|调试/.test(line)
+  ), 6);
+  const mlfbCandidates = extractMlfbCandidates(normalized);
+  const evidenceSnippets = uniqueByText([
+    ...specFacts,
+    ...procedureFacts,
+    ...warningFacts,
+    ...keywordFacts,
+    ...intro,
+  ], 24);
+
+  const compressedText = [
+    `Chapter: ${title || 'Manual chapter'}`,
+    `Original chars: ${normalized.length}`,
+    `Digest policy: chapter-level engineering facts only; low-value vulnerability notices, security update notifications, signed firmware notices, generic marketing text, copyright, and repeated boilerplate are excluded.`,
+    mlfbCandidates.length ? `MLFB candidates: ${mlfbCandidates.join(', ')}` : '',
+    intro.length ? `Overview:\n- ${intro.join('\n- ')}` : '',
+    specFacts.length ? `Parameters and standards:\n- ${specFacts.join('\n- ')}` : '',
+    procedureFacts.length ? `Procedures and engineering rules:\n- ${procedureFacts.join('\n- ')}` : '',
+    warningFacts.length ? `Warnings and limits:\n- ${warningFacts.join('\n- ')}` : '',
+    keywordFacts.length ? `Diagnostics or lifecycle facts:\n- ${keywordFacts.join('\n- ')}` : '',
+  ].filter(Boolean).join('\n\n');
+
+  return {
+    originalCharCount: normalized.length,
+    compressedCharCount: compressedText.length,
+    compressionRatio: normalized.length ? Number((compressedText.length / normalized.length).toFixed(3)) : 1,
+    mlfbCandidates,
+    overview: intro,
+    specFacts,
+    procedureFacts,
+    warningFacts,
+    lifecycleFacts: keywordFacts,
+    evidenceSnippets,
+    compressedText,
+  };
+}
+
 function buildManualChapters(text: string) {
   const lines = text.split('\n');
   const headings: Array<{ index: number; offset: number; title: string }> = [];
@@ -109,15 +196,23 @@ function buildManualChapters(text: string) {
   });
 
   if (headings.length < 2) {
-    return chunkText(text, 9000, 600).map((chunk, index) => ({
-      id: `chapter_${String(index + 1).padStart(4, '0')}`,
-      title: `手册内容片段 ${index + 1}`,
-      chapterType: inferManualChapterType('', chunk.text),
-      charStart: chunk.charStart,
-      charEnd: chunk.charEnd,
-      text: chunk.text,
-      mlfbCandidates: extractMlfbCandidates(chunk.text),
-    }));
+    return chunkText(text, 9000, 600).map((chunk, index) => {
+      const title = `手册内容片段 ${index + 1}`;
+      const digest = extractManualDigest(title, chunk.text);
+      return {
+        id: `chapter_${String(index + 1).padStart(4, '0')}`,
+        title,
+        chapterType: inferManualChapterType('', chunk.text),
+        charStart: chunk.charStart,
+        charEnd: chunk.charEnd,
+        text: digest.compressedText,
+        originalCharCount: digest.originalCharCount,
+        compressedCharCount: digest.compressedCharCount,
+        compressionRatio: digest.compressionRatio,
+        mlfbCandidates: digest.mlfbCandidates,
+        digest,
+      };
+    }).filter((chapter) => chapter.digest.evidenceSnippets.length > 0);
   }
 
   return headings.map((heading, index) => {
@@ -125,16 +220,25 @@ function buildManualChapters(text: string) {
     const charStart = heading.offset;
     const charEnd = next ? next.offset : text.length;
     const chapterText = text.slice(charStart, charEnd).trim();
+    const digest = extractManualDigest(heading.title, chapterText);
     return {
       id: `chapter_${String(index + 1).padStart(4, '0')}`,
       title: heading.title,
       chapterType: inferManualChapterType(heading.title, chapterText),
       charStart,
       charEnd,
-      text: chapterText.length > 12000 ? `${chapterText.slice(0, 12000)}\n[chapter truncated]` : chapterText,
-      mlfbCandidates: extractMlfbCandidates(chapterText),
+      text: digest.compressedText,
+      originalCharCount: digest.originalCharCount,
+      compressedCharCount: digest.compressedCharCount,
+      compressionRatio: digest.compressionRatio,
+      mlfbCandidates: digest.mlfbCandidates,
+      digest,
     };
-  }).filter((chapter) => chapter.text.length >= 80);
+  }).filter((chapter) => (
+    chapter.originalCharCount >= 80
+    && chapter.digest.evidenceSnippets.length > 0
+    && !isLowValueManualChapter(chapter.title, chapter.digest.compressedText)
+  ));
 }
 
 function getFolderPath(folderName: string) {

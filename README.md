@@ -94,7 +94,26 @@ This file is intentionally not committed because it may contain local paths and 
 9. Generate an editable HTML PPT preview.
 10. Export the standalone HTML file.
 
-For `03_Manual_产品技术手册`, local JSON indexing only creates raw source and MLFB candidate cards. Refined per-MLFB cards are generated only after the model extraction step.
+For `03_Manual_产品技术手册`, local indexing is chapter based. The app first splits manuals by detected chapter headings. It then creates a deterministic local digest for each chapter by extracting overview lines, parameter facts, procedure rules, warnings or limits, lifecycle facts, evidence snippets, and MLFB candidates. This digest is generated locally without the LLM and becomes the bounded input for model refinement.
+
+Folder 03 refined cards are reusable chapter/theme cards such as installation, wiring, configuration, commissioning, diagnostics, maintenance, safety notes, limitations, and technical specifications. MLFB values are only optional `related_mlfbs` tags and are filtered against the folder 01 product master whitelist.
+
+Folder 03 filters low-value content during both local digest generation and model-output validation, including vulnerability notices, security update notifications, automatic notification options, signed firmware or firmware update notices, generic cybersecurity advisories, data/archive integrity reminders, marketing copy, copyright/trademark/disclaimer text, repeated warning boilerplate, and empty placeholders.
+
+## Local JSON Technology
+
+Local JSON generation is implemented in `pm-material-hub/src/lib/localIndexer.ts` and extractor helpers under `pm-material-hub/src/lib/extractors.ts`.
+
+The pipeline uses local tools and libraries:
+
+- `xlsx` for Excel product master parsing
+- `mammoth` for Word `.docx` raw text extraction
+- `pdf-parse` for PDF text extraction
+- local PPT/PPTX parsing helpers for slide text, tables, notes, and evidence IDs
+- `sharp` for image metadata and image manifests
+- Microsoft PowerPoint COM automation for true PPT/PPTX PNG page previews
+
+The generated JSON lives under `pm-material-hub/data/local-json-indexes/`. Model extraction reads this bounded local JSON; the model does not read the original PDF, Word, Excel, PPT, or image files directly.
 
 ## Repository Contents
 

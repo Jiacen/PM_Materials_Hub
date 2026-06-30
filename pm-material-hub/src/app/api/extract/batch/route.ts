@@ -36,7 +36,11 @@ function buildLlmPayloadFromRawIndex(rawIndex: any) {
       chapterType: chapter.chapterType,
       charStart: chapter.charStart,
       charEnd: chapter.charEnd,
+      originalCharCount: chapter.originalCharCount,
+      compressedCharCount: chapter.compressedCharCount,
+      compressionRatio: chapter.compressionRatio,
       mlfbCandidates: chapter.mlfbCandidates,
+      digest: chapter.digest,
       text: chapter.text,
     })) : undefined,
     slides: Array.isArray(rawIndex.slides) ? rawIndex.slides : undefined,
@@ -218,6 +222,29 @@ function filterRelatedMlfbs(data: any, masterRecords: Map<string, MasterRecord>)
         ? product.related_mlfbs.map(normalizeMlfb).filter((mlfb: string) => masterRecords.has(mlfb))
         : [],
     })),
+  };
+}
+
+function isLowValueManualProduct(product: any) {
+  const text = [
+    product?.item_type,
+    product?.product_name,
+    product?.summary,
+    ...(Array.isArray(product?.key_features) ? product.key_features : []),
+    ...(Array.isArray(product?.technical_specs) ? product.technical_specs : []),
+  ].join(' ');
+  const lowValue = /漏洞|漏洞通知|安全漏洞|安全公告|安全更新|更新通知|通知选项|自动通知|签名固件|固件签名|固件更新|补丁|补丁程序|网络安全|工业网络安全|数据完整性|归档完整性|篡改|传输错误|订阅|newsletter|notification|security update|security advisory|vulnerability|firmware update|signed firmware|patch|marketing|portfolio|brochure|contact|copyright|trademark|免责声明|商标|版权|营销|宣传|亮点|价值主张/i.test(text);
+  const engineering = /安装|装配|接线|端子|连接|电源|电压|电流|通道|组态|配置|参数|调试|启动|诊断|报警|中断|故障|LED|维护|更换|复位|技术数据|技术规范|额定|尺寸|环境条件|温度|湿度|海拔|防护等级|PROFINET|PROFIBUS|RJ45|RS\s*485|RS\s*422|I\/O|DI|DQ|AI|AQ|RTD|TC|V\s*DC|mA|Hz|mm|IEC|EN\s*\d|UL|CE|IP\d/i.test(text);
+  if (lowValue && !engineering) return true;
+  if (product?.item_type === 'safety_note' && /漏洞|安全更新|自动通知|固件|网络安全|完整性|security|vulnerability|firmware/i.test(text)) return true;
+  return false;
+}
+
+function filterManualProducts(data: any) {
+  if (!Array.isArray(data?.products)) return data;
+  return {
+    ...data,
+    products: data.products.filter((product: any) => !isLowValueManualProduct(product)),
   };
 }
 
@@ -472,11 +499,15 @@ ${masterContext}
 User Rule: ${prompt}`;
         if (folderName.startsWith('03_')) {
           systemPrompt = `You are a professional technical manual chapter extractor.
-You will receive a local raw JSON index generated from a technical manual. Prefer the chapters array as the evidence boundary. Each chapter has id, title, chapterType, text, and optional mlfbCandidates.
+You will receive a local raw JSON index generated from a technical manual. Prefer the chapters array as the evidence boundary. Each chapter has id, title, chapterType, compressed text, deterministic digest, and optional mlfbCandidates.
+The digest is generated locally without an LLM by extracting overview lines, parameter facts, procedure rules, warnings or limits, lifecycle facts, and evidence snippets from the full chapter.
 Extract reusable chapter/theme cards strictly following the user's prompt.
 Use only evidence present in the raw JSON. Do not use external knowledge, assumptions, or prior memory.
 Do not create one card per MLFB for folder 03. MLFB values are only optional related_mlfbs tags when directly evidenced and whitelisted.
 Keep system-level installation, wiring, configuration, commissioning, diagnostics, maintenance, safety, limitation, and technical-spec content as chapter/theme cards even when no MLFB is present.
+Create at most one card per chapter unless the chapter contains clearly separate engineering themes.
+Never create cards for vulnerability notices, security update notifications, automatic notification options, signed firmware or firmware update notices, generic cybersecurity advisories, data/archive integrity reminders, marketing copy, copyright/trademark/disclaimer text, repeated warning boilerplate, or empty placeholders.
+Use safety_note only for physical or electrical safety requirements that directly affect installation, wiring, commissioning, or maintenance.
 If a field is not supported by the raw JSON evidence, write "文档未明确说明".
 You MUST output valid JSON only. Do not wrap in markdown or any other text.
 ${masterContext}
@@ -490,7 +521,7 @@ User Rule: ${prompt}`;
         const structuredData = profile.enforceMlfbCoverage
           ? ensureMlfbCoverage(normalizedData, rawIndex, masterRecords.size ? masterRecords : undefined)
           : folderName.startsWith('03_')
-            ? filterRelatedMlfbs(normalizedData, masterRecords)
+            ? filterManualProducts(filterRelatedMlfbs(normalizedData, masterRecords))
             : normalizedData;
 
         let publishData = structuredData;

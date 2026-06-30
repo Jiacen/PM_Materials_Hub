@@ -67,6 +67,32 @@ Use these exact folder names:
 
 `01_产品物料表格` is authoritative product master data. Other folders may link to MLFBs but must not silently overwrite master data.
 
+## Local JSON Indexing
+
+`POST /api/index/local` is deterministic local indexing and must not call the LLM.
+
+The local JSON pipeline is implemented mainly in:
+
+```text
+pm-material-hub/src/lib/localIndexer.ts
+pm-material-hub/src/lib/extractors.ts
+```
+
+Use local parsers and local Windows capabilities before any model call:
+
+- `xlsx` for Excel product master rows
+- `mammoth` for Word `.docx` raw text
+- `pdf-parse` for PDF text
+- presentation extraction helpers for PPT/PPTX text, tables, notes, slide numbers, and evidence IDs
+- `sharp` for image metadata and image manifests
+- Microsoft PowerPoint COM automation for true PPT/PPTX PNG page previews
+
+Folder `03_Manual_产品技术手册` is chapter/theme based. Local indexing should split manuals by detected chapter headings and build deterministic per-chapter digests with overview lines, parameter facts, procedure rules, warnings or limits, lifecycle facts, evidence snippets, and MLFB candidates. Do not make folder 03 one-card-per-MLFB; MLFB values are only `related_mlfbs` tags filtered through folder 01 product master data.
+
+Folder 03 must filter low-value material during both local digest generation and model-output validation: vulnerability notices, security update notifications, automatic notification options, signed firmware or firmware update notices, generic cybersecurity advisories, data/archive integrity reminders, marketing copy, copyright/trademark/disclaimer text, repeated warning boilerplate, and empty placeholders should not become cards.
+
+The configured model should receive bounded JSON from `pm-material-hub/data/local-json-indexes/`, never raw source files directly.
+
 ## Templates
 
 Shared templates live in:

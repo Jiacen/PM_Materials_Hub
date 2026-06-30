@@ -103,7 +103,26 @@ Local JSON generation is deterministic and does not call the LLM. It should only
 
 Refined material cards are generated only after the model extraction step or an explicit manual-card generation workflow.
 
-For `03_Manual_产品技术手册`, the expected refined output is one reusable card per MLFB when the source evidence supports MLFB extraction.
+For `03_Manual_产品技术手册`, local indexing is chapter based. The app first splits manuals by detected chapter headings. It then creates a deterministic local digest for each chapter by extracting overview lines, parameter facts, procedure rules, warnings or limits, lifecycle facts, evidence snippets, and MLFB candidates. This digest is generated locally without the LLM and becomes the bounded input for model refinement.
+
+The expected refined output for folder 03 is reusable chapter/theme cards such as installation, wiring, configuration, commissioning, diagnostics, maintenance, safety notes, limitations, and technical specifications. MLFB values are only optional `related_mlfbs` tags and are filtered against the folder 01 product master whitelist.
+
+Folder 03 filters low-value content during both local digest generation and model-output validation, including vulnerability notices, security update notifications, automatic notification options, signed firmware or firmware update notices, generic cybersecurity advisories, data/archive integrity reminders, marketing copy, copyright/trademark/disclaimer text, repeated warning boilerplate, and empty placeholders.
+
+## Local JSON Technology
+
+The local JSON pipeline is implemented in `src/lib/localIndexer.ts` and extractor helpers under `src/lib/extractors.ts`.
+
+It uses local Node.js libraries and Windows capabilities:
+
+- `xlsx` for Excel product master parsing
+- `mammoth` for Word `.docx` raw text extraction
+- `pdf-parse` for PDF text extraction
+- `pptxgenjs` / local presentation parsing helpers for PPT/PPTX text, tables, notes, and slide evidence IDs
+- `sharp` for image metadata and image manifest generation
+- Microsoft PowerPoint COM automation for true PPT/PPTX PNG page previews
+
+The local indexer writes bounded JSON under `data/local-json-indexes/`. This JSON is the only source sent to the configured model during refined extraction; the model does not read original PDF, Word, Excel, PPT, or image files directly.
 
 ## PPT/PPTX Flow
 
