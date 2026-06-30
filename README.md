@@ -1,21 +1,20 @@
 # PM Material Hub
 
-PM Material Hub is a local-first workspace for Product Managers. It helps PMs turn private local product materials into reusable material cards, assemble those cards visually, and generate editable HTML presentation pages.
-
-This project is designed to run on a PM's own Windows machine. It is not currently positioned as a VPS-hosted SaaS product.
+PM Material Hub is a Windows local workspace for Product Managers. It helps PMs turn private local product materials into reusable material cards, assemble those cards visually, and generate editable HTML presentation pages.
 
 ## Why Local
 
 PM source materials often include product masters, manuals, sales decks, certificates, price references, customer cases, and internal notes. These files should stay on the user's machine.
 
-The application also relies on Microsoft PowerPoint for true PPT/PPTX page previews and PM-selected slide regions. A typical VPS, especially Linux, does not provide that environment.
+The application also relies on Microsoft PowerPoint for true PPT/PPTX page previews and PM-selected slide regions. A local Office environment preserves the original slide appearance and supports PM-selected visual regions.
+
+The main workflow is personal material organization, card selection, page assembly, preview generation, and standalone HTML export, all of which fit naturally with direct access to local files.
 
 ## One-Click Windows Start
 
-After downloading and extracting a GitHub release, double-click one of these files in the repository root:
+After downloading and extracting a GitHub release, double-click this file in the repository root:
 
 ```text
-启动 PM Material Hub.cmd
 Start PM Material Hub.cmd
 ```
 
@@ -103,8 +102,7 @@ For `03_Manual_产品技术手册`, local JSON indexing only creates raw source 
 pm-material-hub/                  Next.js local app
 Slides_Template/                  Shared PPT style templates
 Slides_Template/Scenario_Layouts/ Scenario layout templates and previews
-启动 PM Material Hub.cmd           Chinese one-click launcher
-Start PM Material Hub.cmd         English one-click launcher
+Start PM Material Hub.cmd         one-click launcher
 ```
 
 ## Do Not Commit

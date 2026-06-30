@@ -5,7 +5,6 @@ This folder contains the local Next.js app used by PM Material Hub.
 Normal users should start the product from the repository root by double-clicking:
 
 ```text
-启动 PM Material Hub.cmd
 Start PM Material Hub.cmd
 ```
 
@@ -38,7 +37,7 @@ Optional:
 
 ## Product Scope
 
-PM Material Hub is a local PM material workspace, not a chatbot and not a VPS-first web service.
+PM Material Hub is a Windows local PM material workspace. The product centers on local source materials, reusable cards, PowerPoint previews, visual page assembly, and editable HTML PPT export.
 
 The app supports:
 

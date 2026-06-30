@@ -4,7 +4,7 @@ This workspace contains PM Material Hub and shared presentation templates.
 
 ## Product Direction
 
-PM Material Hub is a local-first Windows tool for Product Managers. The current product direction is not VPS-first and not SaaS-first.
+PM Material Hub is a Windows local tool for Product Managers. The product centers on local source materials, reusable cards, Microsoft PowerPoint previews, visual page assembly, and editable HTML PPT export.
 
 Runtime behavior must work through the application, bundled/local scripts, configured model services, Microsoft PowerPoint where needed, and local files. Codex is only for development and testing.
 
@@ -14,8 +14,7 @@ Runtime behavior must work through the application, bundled/local scripts, confi
 pm-material-hub/                  Next.js local app
 Slides_Template/                  shared PPT style templates
 Slides_Template/Scenario_Layouts/ scenario templates and preview assets
-启动 PM Material Hub.cmd           user-facing Chinese launcher
-Start PM Material Hub.cmd         user-facing English launcher
+Start PM Material Hub.cmd         user-facing launcher
 ```
 
 For implementation details, always read:
@@ -29,7 +28,6 @@ pm-material-hub/AGENTS.md
 The user-facing path is one-click local startup from the release package:
 
 ```text
-启动 PM Material Hub.cmd
 Start PM Material Hub.cmd
 ```
 
@@ -48,7 +46,7 @@ Do not design features that require Codex at runtime.
 
 Do not assume source materials live inside this repository. PM source materials stay in a local workspace configured through the app.
 
-Do not optimize for VPS deployment unless the user explicitly reopens that direction. VPS environments normally lack Microsoft PowerPoint, which is required for true PPT/PPTX page previews and PM-selected slide regions.
+Keep runtime assumptions local: the app should read local files, use local settings, and rely on Microsoft PowerPoint when true PPT/PPTX previews or PM-selected slide regions are needed.
 
 ## Standard Material Folders
 

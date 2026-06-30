@@ -4,9 +4,9 @@ This document is for Codex/agents and human developers working on the app.
 
 ## Product Goal
 
-PM Material Hub is a local-first Product Manager workspace. It turns local product files into reusable material cards and generates editable HTML PPT pages from a visual workspace.
+PM Material Hub is a Windows local Product Manager workspace. It turns local product files into reusable material cards and generates editable HTML PPT pages from a visual workspace.
 
-The product is not chatbot-first, VPS-first, or SaaS-first. PMs should primarily work through material cards, page slots, PPT previews, Favorite selections, and scenario templates.
+PMs should primarily work through material cards, page slots, PPT previews, Favorite selections, and scenario templates.
 
 ## Runtime Boundary
 
@@ -19,7 +19,6 @@ Do not design runtime features that require a Codex conversation.
 Release packages should be usable through one-click Windows launchers:
 
 ```text
-../启动 PM Material Hub.cmd
 ../Start PM Material Hub.cmd
 start-dev.cmd
 ```

@@ -1,26 +1,18 @@
 # PM Material Hub 中文说明
 
-PM Material Hub 是一个本地优先的产品经理物料工作台。它把本地产品资料整理成可复用的物料卡片，让 PM 通过拖拽方式组合页面，并生成可编辑的 HTML 版本 PPT。
+PM Material Hub 是一个 Windows 本地运行的产品经理物料工作台。它把本地产品资料整理成可复用的物料卡片，让 PM 通过拖拽方式组合页面，并生成可编辑的 HTML 版本 PPT。
 
-这个项目当前定位为 Windows 本地运行工具，不建议部署成 VPS/SaaS。
+## 为什么适合本地运行
 
-## 为什么不优先做 VPS
+这个项目的核心场景天然适合放在 PM 自己的电脑上完成：
 
-原因有三点：
-
-- 产品资料通常包含主数据、手册、销售材料、证书、价格参考、客户案例和内部说明，应该留在用户本机。
-- PPT/PPTX 原始页预览和框选精选依赖 Microsoft PowerPoint 的真实渲染，普通 VPS 尤其是 Linux VPS 不具备这个环境。
-- 当前产品是单人 PM 本地工作台，不是多人协作 SaaS。硬做 VPS 会引入上传、权限、安全、存储和 Office 替代方案等非核心复杂度。
+- 产品资料通常包含主数据、手册、销售材料、证书、价格参考、客户案例和内部说明，本地读取更符合资料安全边界。
+- PPT/PPTX 原始页预览和框选精选需要 Microsoft PowerPoint 的真实渲染，本机 Office 环境可以保留原始页面视觉。
+- PM 的主要工作流是整理、筛选、拖拽组合和导出交付件，本地应用可以直接访问资料区、缓存预览并导出独立 HTML 文件。
 
 ## 一键启动
 
 从 GitHub release 下载并解压后，在项目根目录双击：
-
-```text
-启动 PM Material Hub.cmd
-```
-
-也可以双击英文入口：
 
 ```text
 Start PM Material Hub.cmd
@@ -118,8 +110,7 @@ PM 可以打开某一页 PPT 预览，拖拽框选区域并点击 Favorite，生
 pm-material-hub/                  Next.js 本地应用
 Slides_Template/                  共享 PPT 风格模板
 Slides_Template/Scenario_Layouts/ 场景模板和预览图
-启动 PM Material Hub.cmd           中文一键启动入口
-Start PM Material Hub.cmd         英文一键启动入口
+Start PM Material Hub.cmd         一键启动入口
 ```
 
 ## 不要提交

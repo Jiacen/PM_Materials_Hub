@@ -5,12 +5,6 @@
 普通用户不需要进入 PowerShell 输入 npm 命令。下载并解压 release 后，在项目根目录双击：
 
 ```text
-启动 PM Material Hub.cmd
-```
-
-或：
-
-```text
 Start PM Material Hub.cmd
 ```
 
@@ -47,7 +41,7 @@ http://127.0.0.1:3001/
 
 ## 产品定位
 
-PM Material Hub 是本地优先的 PM 物料工作台，不是聊天机器人，也不是 VPS 优先的在线服务。
+PM Material Hub 是 Windows 本地运行的 PM 物料工作台。它围绕本地资料区、物料卡片、PPT 预览、拖拽工作区和 HTML PPT 导出展开。
 
 它支持：
 
