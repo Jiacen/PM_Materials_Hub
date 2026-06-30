@@ -1,6 +1,12 @@
 # PM Material Hub 中文说明
 
-PM Material Hub 是一个 Windows 本地运行的产品经理物料工作台。它把本地产品资料整理成可复用的物料卡片，让 PM 通过拖拽方式组合页面，并生成可编辑的 HTML 版本 PPT。
+PM Material Hub 是一个 Windows 本地运行的产品经理物料工作台。
+面向产品经理使用。它把将本地业务资料和技术资料整理成可复用的物料卡片，让 PM 通过拖拽方式组合页面，并生成符合西门子风格的 HTML 版本 PPT。
+
+这个项目不是聊天机器人。核心交互是“左侧物料库 + 中间工作区 + 生成预览 + 导出 HTML”。
+
+<img width="3439" height="1289" alt="屏幕截图 2026-06-30 170329" src="https://github.com/user-attachments/assets/671b2f47-1cfd-4253-a394-6418a5e9377d" />
+
 
 ## 为什么适合本地运行
 
