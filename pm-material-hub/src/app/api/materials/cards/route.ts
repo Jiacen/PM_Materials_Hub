@@ -9,6 +9,7 @@ type MaterialCard = {
   id: string;
   type: 'document' | 'slide' | 'ppt_selection' | 'mlfb' | 'evidence' | 'product' | 'module' | 'accessory' | 'certificate'
     | 'product_master' | 'product_overview' | 'technical_feature' | 'technical_spec' | 'limitation'
+    | 'installation' | 'wiring' | 'configuration' | 'commissioning' | 'diagnostics' | 'maintenance' | 'safety_note'
     | 'value_proposition' | 'application' | 'comparison' | 'case_study' | 'customer_pain'
     | 'solution' | 'business_result' | 'sales_message' | 'objection_handling' | 'competitive_claim'
     | 'release_notice' | 'faq' | 'troubleshooting' | 'image';
@@ -31,6 +32,13 @@ type MaterialCard = {
     type: string;
     items: string[];
   }>;
+};
+
+type MasterRecord = {
+  productType?: string;
+  subType?: string;
+  mlfb: string;
+  description?: string;
 };
 
 function cardsFromPresentationSlides(folderName: string, sourceFile: string, raw: any): MaterialCard[] {
@@ -79,6 +87,57 @@ function compactText(text: string, maxLength = 240) {
   return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
 }
 
+function supportedManualRawType(value: unknown): MaterialCard['type'] {
+  const type = String(value || '');
+  return [
+    'technical_feature',
+    'technical_spec',
+    'installation',
+    'wiring',
+    'configuration',
+    'commissioning',
+    'diagnostics',
+    'maintenance',
+    'limitation',
+    'safety_note',
+  ].includes(type) ? type as MaterialCard['type'] : 'technical_feature';
+}
+
+function normalizeMlfb(value: unknown) {
+  return String(value || '').toUpperCase().replace(/\s+/g, '');
+}
+
+function loadMasterRecordMap() {
+  const root = path.join(process.cwd(), 'data', 'local-json-indexes');
+  const records = new Map<string, MasterRecord>();
+  if (!fs.existsSync(root)) return records;
+
+  for (const dir of fs.readdirSync(root).filter(name => name.startsWith('01_'))) {
+    const dirPath = path.join(root, dir);
+    for (const file of fs.readdirSync(dirPath).filter(name => name.endsWith('.raw.json'))) {
+      const json = JSON.parse(fs.readFileSync(path.join(dirPath, file), 'utf8'));
+      if (!Array.isArray(json?.records)) continue;
+      for (const record of json.records) {
+        const mlfb = normalizeMlfb(record?.mlfb);
+        if (mlfb) records.set(mlfb, { ...record, mlfb });
+      }
+    }
+  }
+  return records;
+}
+
+function mlfbValuesFromProduct(product: any) {
+  const rawValues = Array.isArray(product?.mlfb)
+    ? product.mlfb
+    : String(product?.mlfb || '').split(/[,，、;；]/);
+  return [...new Set(rawValues.map(normalizeMlfb).filter(Boolean))] as string[];
+}
+
+function masterItemType(record: MasterRecord) {
+  const text = `${record.subType || ''} ${record.description || ''}`;
+  return /备件|附件|端子|盖板|标签|色标|连接器|接插件|插头|电缆/.test(text) ? 'accessory' : 'module';
+}
+
 function isUsefulText(value: unknown) {
   const text = String(value || '').trim();
   return Boolean(text) && !text.includes('文档未明确') && !text.includes('文档未涉及');
@@ -92,19 +151,30 @@ function findEvidenceSnippet(chunks: any[], value: string) {
   };
 }
 
-function cardsFromAiJson(folderName: string, sourceFile: string, ai: any): MaterialCard[] {
+function cardsFromAiJson(folderName: string, sourceFile: string, ai: any, masterRecords?: Map<string, MasterRecord>): MaterialCard[] {
   const products = Array.isArray(ai?.products) ? ai.products : [];
   const finalizedBy = String(ai?._index?.finalizedBy || 'llm');
-  return products.map((product: any, index: number) => {
+  return products.flatMap((product: any, productIndex: number) => {
+    const scopedMlfbs = masterRecords?.size
+      ? mlfbValuesFromProduct(product).filter(mlfb => masterRecords.has(mlfb))
+      : [Array.isArray(product.mlfb) ? product.mlfb.join(', ') : String(product.mlfb || '')];
+    if (masterRecords?.size && scopedMlfbs.length === 0) return [];
+
+    return scopedMlfbs.map((scopedMlfb, scopedIndex) => {
+    const masterRecord = masterRecords?.get(scopedMlfb);
     const supportedTypes = new Set([
       'product', 'module', 'accessory', 'certificate', 'value_proposition',
       'product_overview', 'technical_feature', 'technical_spec', 'limitation',
+      'installation', 'wiring', 'configuration', 'commissioning', 'diagnostics', 'maintenance', 'safety_note',
       'application', 'comparison', 'case_study', 'customer_pain', 'solution',
       'business_result', 'sales_message', 'objection_handling', 'competitive_claim',
       'release_notice', 'faq', 'troubleshooting',
     ]);
-    const itemType = supportedTypes.has(product.item_type) ? product.item_type : 'product';
-    const mlfb = Array.isArray(product.mlfb) ? product.mlfb.join(', ') : String(product.mlfb || '');
+    const itemType = masterRecord
+      ? masterItemType(masterRecord)
+      : supportedTypes.has(product.item_type) ? product.item_type : 'product';
+    const mlfb = masterRecord?.mlfb || scopedMlfb;
+    const productName = masterRecord?.description || product.product_name || mlfb;
     const featureText = Array.isArray(product.key_features) ? product.key_features.join(' ') : '';
     const specText = Array.isArray(product.technical_specs) ? product.technical_specs.slice(0, 4).join(' · ') : '';
     const certificateText = itemType === 'certificate'
@@ -162,10 +232,10 @@ function cardsFromAiJson(folderName: string, sourceFile: string, ai: any): Mater
     ].filter(section => section.items.length > 0);
 
     return {
-      id: `${safeId(sourceFile)}-ai-${index}-${safeId(product.product_name || mlfb || String(index))}`,
+      id: `${safeId(sourceFile)}-ai-${productIndex}-${scopedIndex}-${safeId(productName || mlfb || String(productIndex))}`,
       type: itemType,
       stage: 'ai',
-      title: product.product_name || mlfb || '精提取物料',
+      title: productName || '精提取物料',
       subtitle: itemType === 'certificate'
         ? String(product.certificate_number || '认证证书')
         : mlfb || (itemType === 'accessory'
@@ -177,6 +247,7 @@ function cardsFromAiJson(folderName: string, sourceFile: string, ai: any): Mater
       chunkIds: Array.isArray(product.evidence_chunk_ids) ? product.evidence_chunk_ids : [],
       sections,
     };
+    });
   });
 }
 
@@ -217,6 +288,23 @@ function cardsFromRawJson(folderName: string, fileName: string, raw: any): Mater
     folderName,
     chunkIds: chunks.slice(0, 2).map((chunk: any) => chunk.id).filter(Boolean),
   });
+
+  if (folderName.startsWith('03_') && Array.isArray(raw?.chapters)) {
+    for (const chapter of raw.chapters.slice(0, 80)) {
+      cards.push({
+        id: `${safeId(sourceFile)}-chapter-${safeId(chapter.id || chapter.title || '')}`,
+        type: supportedManualRawType(chapter.chapterType),
+        stage: 'raw',
+        title: String(chapter.title || chapter.id || '手册章节'),
+        subtitle: `原始章节 · ${chapter.chapterType || 'manual'}`,
+        body: compactText(String(chapter.text || '')),
+        sourceFile,
+        folderName,
+        chunkIds: chapter.id ? [chapter.id] : [],
+      });
+    }
+    return cards;
+  }
 
   if (!profile.showRawMlfbCards) return cards;
 
@@ -284,6 +372,11 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: true, cards: favoriteCards });
     }
 
+    const profile = getMaterialProfile(folderName);
+    const masterRecords = profile.enforceMlfbCoverage && !folderName.startsWith('01_')
+      ? loadMasterRecordMap()
+      : undefined;
+
     const cards = fs.readdirSync(folderPath)
       .filter((file) => file.endsWith('.raw.json') || file.endsWith('.image.json'))
       .flatMap((file) => {
@@ -300,7 +393,7 @@ export async function GET(req: Request) {
           return [...generatedManualCards, ...rawCards];
         }
         const aiIndex = findAiIndexForSource(folderName, sourceFile);
-        const aiCards = aiIndex ? cardsFromAiJson(folderName, sourceFile, aiIndex) : [];
+        const aiCards = aiIndex ? cardsFromAiJson(folderName, sourceFile, aiIndex, masterRecords) : [];
         return aiCards.length > 0 ? [...aiCards, ...slideCards, ...rawCards] : [...slideCards, ...rawCards];
       });
 

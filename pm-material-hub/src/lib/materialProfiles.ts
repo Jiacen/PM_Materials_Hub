@@ -23,9 +23,9 @@ const PROFILES: MaterialProfile[] = [
   },
   {
     folderPrefix: '03_',
-    primaryCardTypes: ['technical_feature', 'technical_spec', 'module', 'limitation'],
-    showRawMlfbCards: true,
-    enforceMlfbCoverage: true,
+    primaryCardTypes: ['technical_feature', 'technical_spec', 'installation', 'wiring', 'configuration', 'commissioning', 'diagnostics', 'maintenance', 'limitation', 'safety_note'],
+    showRawMlfbCards: false,
+    enforceMlfbCoverage: false,
     requiresLlm: true,
   },
   {

@@ -791,6 +791,13 @@ export default function Home() {
     if (type === 'product_overview') return 'OVERVIEW';
     if (type === 'technical_feature') return 'FEATURE';
     if (type === 'technical_spec') return 'SPEC';
+    if (type === 'installation') return 'INSTALL';
+    if (type === 'wiring') return 'WIRING';
+    if (type === 'configuration') return 'CONFIG';
+    if (type === 'commissioning') return 'STARTUP';
+    if (type === 'diagnostics') return 'DIAG';
+    if (type === 'maintenance') return 'MAINTAIN';
+    if (type === 'safety_note') return 'SAFETY';
     if (type === 'limitation') return 'LIMIT';
     if (type === 'value_proposition') return 'VALUE';
     if (type === 'application') return 'APPLICATION';
@@ -822,6 +829,13 @@ export default function Home() {
     if (type === 'product_overview') return 'bg-emerald-50 text-emerald-800 border-emerald-200';
     if (type === 'technical_feature') return 'bg-cyan-50 text-cyan-800 border-cyan-200';
     if (type === 'technical_spec') return 'bg-slate-100 text-slate-700 border-slate-200';
+    if (type === 'installation') return 'bg-lime-50 text-lime-800 border-lime-200';
+    if (type === 'wiring') return 'bg-yellow-50 text-yellow-800 border-yellow-200';
+    if (type === 'configuration') return 'bg-sky-50 text-sky-800 border-sky-200';
+    if (type === 'commissioning') return 'bg-teal-50 text-teal-800 border-teal-200';
+    if (type === 'diagnostics') return 'bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200';
+    if (type === 'maintenance') return 'bg-stone-100 text-stone-700 border-stone-200';
+    if (type === 'safety_note') return 'bg-red-50 text-red-700 border-red-200';
     if (type === 'limitation') return 'bg-red-50 text-red-700 border-red-200';
     if (type === 'value_proposition') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     if (type === 'application') return 'bg-cyan-50 text-cyan-700 border-cyan-200';
@@ -847,6 +861,7 @@ export default function Home() {
     const separator = raw.includes('?') ? '&' : '?';
     return `${raw}${separator}mode=full${item.type === 'image' ? '&transparent=1' : ''}`;
   };
+  const canUseLlmExtraction = selectedFolder ? !selectedFolder.startsWith('01_') : false;
 
   const openCardDetail = (card: any) => {
     const firstItems = (card.sections || []).flatMap((section: any) =>
@@ -2222,6 +2237,7 @@ export default function Home() {
                   </div>
                 )}
 
+                {canUseLlmExtraction && (
                 <details className="pt-3 border-t border-siemens-stone/40">
                   <summary className="cursor-pointer text-xs font-semibold text-slate-500 hover:text-primary">
                     高级：大模型精提取规则
@@ -2251,13 +2267,16 @@ export default function Home() {
                     </div>
                   </div>
                 </details>
+                )}
                 
                 <div className="mt-6 pt-4 border-t border-siemens-stone/40">
                   <h4 className="text-xs font-semibold text-slate-600 mb-2">文件夹状态</h4>
                   <div className="text-[11px] text-slate-500 space-y-1">
                     <p>总计文件：{groupedFiles[selectedFolder]?.length || 0} 个</p>
                     <p>本地 JSON：<span className="text-emerald-500 font-semibold">{workspaceInfo?.localIndexCounts?.[selectedFolder] || 0} 个</span></p>
-                    <p>大模型精提取：<span className="text-slate-400 font-semibold">{workspaceInfo?.extractedCounts?.[selectedFolder] || 0} 个</span></p>
+                    {canUseLlmExtraction && (
+                      <p>大模型精提取：<span className="text-slate-400 font-semibold">{workspaceInfo?.extractedCounts?.[selectedFolder] || 0} 个</span></p>
+                    )}
                   </div>
                 </div>
 

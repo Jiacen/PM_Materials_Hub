@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { defaultPromptForFolder } from '@/lib/defaultPrompts';
 
 const SETTINGS_PATH = path.join(process.cwd(), 'config', 'settings.json');
 
@@ -27,6 +28,9 @@ export async function GET(req: Request) {
       const promptPath = path.join(workspacePath, folder, 'prompt.txt');
       if (fs.existsSync(promptPath)) {
         prompts[folder] = fs.readFileSync(promptPath, 'utf8');
+      } else {
+        const defaultPrompt = defaultPromptForFolder(folder);
+        if (defaultPrompt) prompts[folder] = defaultPrompt;
       }
     }
     return NextResponse.json(prompts);

@@ -75,6 +75,68 @@ function extractHeadingCandidates(text: string) {
     .slice(0, 300);
 }
 
+function inferManualChapterType(title: string, text: string) {
+  const sample = `${title}\n${text.slice(0, 600)}`;
+  if (/安全|警告|危险|小心|注意/.test(sample)) return 'safety_note';
+  if (/安装|装配|导轨|尺寸图|间距/.test(sample)) return 'installation';
+  if (/接线|端子|连接|电缆|电源|电压|RJ45|PROFINET/i.test(sample)) return 'wiring';
+  if (/组态|配置|参数|TIA|STEP\s*7|GSD/i.test(sample)) return 'configuration';
+  if (/调试|启动|试运行|固件|复位/.test(sample)) return 'commissioning';
+  if (/诊断|报警|中断|故障|LED|错误/.test(sample)) return 'diagnostics';
+  if (/维护|更换|备份|更新|清洁/.test(sample)) return 'maintenance';
+  if (/技术数据|技术规范|额定|环境条件|认证|标准|IP\d/i.test(sample)) return 'technical_spec';
+  if (/限制|边界|不能|不支持|要求|条件/.test(sample)) return 'limitation';
+  return 'technical_feature';
+}
+
+function buildManualChapters(text: string) {
+  const lines = text.split('\n');
+  const headings: Array<{ index: number; offset: number; title: string }> = [];
+  let offset = 0;
+  const headingPattern = /^(\d+(\.\d+){0,3}|[A-D]\.\d+)\s+\S+/;
+  const namedHeadingPattern = /^(简介|系统概述|产品概述|应用规划|安装|接线|组态|配置|调试|诊断|维护|技术规范|技术数据|工业网络安全|附件\/备件|参数分配|报警|中断|尺寸图|认证|安全说明)$/;
+
+  lines.forEach((line, index) => {
+    const title = line.trim();
+    if (
+      title.length >= 2
+      && title.length <= 100
+      && (headingPattern.test(title) || namedHeadingPattern.test(title))
+    ) {
+      headings.push({ index, offset, title });
+    }
+    offset += line.length + 1;
+  });
+
+  if (headings.length < 2) {
+    return chunkText(text, 9000, 600).map((chunk, index) => ({
+      id: `chapter_${String(index + 1).padStart(4, '0')}`,
+      title: `手册内容片段 ${index + 1}`,
+      chapterType: inferManualChapterType('', chunk.text),
+      charStart: chunk.charStart,
+      charEnd: chunk.charEnd,
+      text: chunk.text,
+      mlfbCandidates: extractMlfbCandidates(chunk.text),
+    }));
+  }
+
+  return headings.map((heading, index) => {
+    const next = headings[index + 1];
+    const charStart = heading.offset;
+    const charEnd = next ? next.offset : text.length;
+    const chapterText = text.slice(charStart, charEnd).trim();
+    return {
+      id: `chapter_${String(index + 1).padStart(4, '0')}`,
+      title: heading.title,
+      chapterType: inferManualChapterType(heading.title, chapterText),
+      charStart,
+      charEnd,
+      text: chapterText.length > 12000 ? `${chapterText.slice(0, 12000)}\n[chapter truncated]` : chapterText,
+      mlfbCandidates: extractMlfbCandidates(chapterText),
+    };
+  }).filter((chapter) => chapter.text.length >= 80);
+}
+
 function getFolderPath(folderName: string) {
   const workspacePath = getWorkspacePath();
   if (!workspacePath) throw new Error('Workspace path not configured');
@@ -194,6 +256,9 @@ export async function indexFolderLocally(folderName: string, force = false): Pro
       const rawText = normalizeText(presentation?.text || productMaster?.text || await extractRawText(filePath));
       const promptPath = path.join(targetFolder, 'prompt.txt');
       const prompt = fs.existsSync(promptPath) ? fs.readFileSync(promptPath, 'utf8') : '';
+      const manualChapters = !presentation && !productMaster && folderName.startsWith('03_')
+        ? buildManualChapters(rawText)
+        : [];
       const chunks = presentation
         ? presentation.slides.map((slide: any) => ({
             id: slide.id,
@@ -216,7 +281,16 @@ export async function indexFolderLocally(folderName: string, force = false): Pro
                 record.listPriceRmbInclVat != null ? `RMB ${record.listPriceRmbInclVat}` : '',
               ].filter(Boolean).join(' | '),
             }))
-          : chunkText(rawText);
+          : manualChapters.length
+            ? manualChapters.map((chapter) => ({
+                id: chapter.id,
+                title: chapter.title,
+                chapterType: chapter.chapterType,
+                charStart: chapter.charStart,
+                charEnd: chapter.charEnd,
+                text: chapter.text,
+              }))
+            : chunkText(rawText);
       const mlfbCandidates = extractMlfbCandidates(rawText);
 
       const doc = {
@@ -238,6 +312,7 @@ export async function indexFolderLocally(folderName: string, force = false): Pro
         stats: {
           chars: rawText.length,
           chunkCount: chunks.length,
+          ...(manualChapters.length ? { chapterCount: manualChapters.length } : {}),
           ...(presentation?.stats || {}),
           ...(productMaster?.stats || {}),
         },
@@ -246,6 +321,7 @@ export async function indexFolderLocally(folderName: string, force = false): Pro
           headingCandidates: extractHeadingCandidates(rawText),
         },
         chunks,
+        ...(manualChapters.length ? { chapters: manualChapters } : {}),
         ...(presentation ? { slides: presentation.slides } : {}),
         ...(productMaster ? { records: productMaster.records, kind: 'product_master' } : {}),
       };

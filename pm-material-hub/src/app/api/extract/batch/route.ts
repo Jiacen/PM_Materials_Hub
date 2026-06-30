@@ -7,6 +7,15 @@ import { buildFolderCatalog } from '@/lib/materialCatalog';
 
 const SETTINGS_PATH = path.join(process.cwd(), 'config', 'settings.json');
 
+type MasterRecord = {
+  productType?: string;
+  subType?: string;
+  mlfb: string;
+  description?: string;
+  priceGroup?: string;
+  listPriceRmbInclVat?: number | null;
+};
+
 function getWorkspacePath() {
   if (fs.existsSync(SETTINGS_PATH)) {
     const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
@@ -21,6 +30,15 @@ function buildLlmPayloadFromRawIndex(rawIndex: any) {
     source: rawIndex.source,
     extracted: rawIndex.extracted,
     stats: rawIndex.stats,
+    chapters: Array.isArray(rawIndex.chapters) ? rawIndex.chapters.map((chapter: any) => ({
+      id: chapter.id,
+      title: chapter.title,
+      chapterType: chapter.chapterType,
+      charStart: chapter.charStart,
+      charEnd: chapter.charEnd,
+      mlfbCandidates: chapter.mlfbCandidates,
+      text: chapter.text,
+    })) : undefined,
     slides: Array.isArray(rawIndex.slides) ? rawIndex.slides : undefined,
     records: Array.isArray(rawIndex.records) ? rawIndex.records : undefined,
     chunks: chunks.map((chunk: any) => ({
@@ -44,6 +62,42 @@ function normalizeMlfb(value: unknown) {
   return `${match[1]}${suffix.join('')}`;
 }
 
+function loadMasterRecordMap() {
+  const root = path.join(process.cwd(), 'data', 'local-json-indexes');
+  const records = new Map<string, MasterRecord>();
+  if (!fs.existsSync(root)) return records;
+
+  for (const dir of fs.readdirSync(root).filter(name => name.startsWith('01_'))) {
+    const dirPath = path.join(root, dir);
+    for (const file of fs.readdirSync(dirPath).filter(name => name.endsWith('.raw.json'))) {
+      const json = JSON.parse(fs.readFileSync(path.join(dirPath, file), 'utf8'));
+      if (!Array.isArray(json?.records)) continue;
+      for (const record of json.records) {
+        const mlfb = normalizeMlfb(record?.mlfb);
+        if (mlfb) records.set(mlfb, { ...record, mlfb });
+      }
+    }
+  }
+  return records;
+}
+
+function masterItemType(record: MasterRecord) {
+  const text = `${record.subType || ''} ${record.description || ''}`;
+  return /备件|附件|端子|盖板|标签|色标|连接器|接插件|插头|电缆/.test(text) ? 'accessory' : 'module';
+}
+
+function masterPromptContext(masterRecords: Map<string, MasterRecord>) {
+  return [...masterRecords.values()]
+    .map(record => [
+      record.mlfb,
+      record.productType,
+      record.subType,
+      record.description,
+      record.priceGroup ? `PG ${record.priceGroup}` : '',
+    ].filter(Boolean).join(' | '))
+    .join('\n');
+}
+
 function normalizeStructuredData(data: any) {
   if (!Array.isArray(data?.products)) return data;
   return {
@@ -57,6 +111,9 @@ function normalizeStructuredData(data: any) {
           : '',
       covered_mlfbs: Array.isArray(product.covered_mlfbs)
         ? [...new Set(product.covered_mlfbs.map(normalizeMlfb).filter(Boolean))]
+        : [],
+      related_mlfbs: Array.isArray(product.related_mlfbs)
+        ? [...new Set(product.related_mlfbs.map(normalizeMlfb).filter(Boolean))]
         : [],
     })),
   };
@@ -109,6 +166,30 @@ function mlfbValuesFromProduct(product: any) {
   return [...new Set(rawValues.map(normalizeMlfb).filter(Boolean))] as string[];
 }
 
+function normalizeProductToMaster(product: any, record: MasterRecord, evidenceIds: string[] = []) {
+  const mlfb = normalizeMlfb(record.mlfb);
+  const masterSpecs = [
+    record.priceGroup ? `价格组：${record.priceGroup}` : '',
+    record.listPriceRmbInclVat != null ? `含税列表价 RMB ${Number(record.listPriceRmbInclVat).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}` : '',
+  ].filter(Boolean);
+
+  return {
+    ...product,
+    item_type: masterItemType(record),
+    product_name: record.description || product?.product_name || mlfb,
+    mlfb,
+    covered_mlfbs: [mlfb],
+    summary: product?.summary || `${record.productType || '产品'} / ${record.subType || '模块'}：${record.description || mlfb}`,
+    technical_specs: [
+      ...(Array.isArray(product?.technical_specs) ? product.technical_specs : []),
+      ...masterSpecs,
+    ].filter(Boolean),
+    evidence_chunk_ids: Array.isArray(product?.evidence_chunk_ids) && product.evidence_chunk_ids.length
+      ? product.evidence_chunk_ids
+      : evidenceIds,
+  };
+}
+
 function expandProductsToSingleMlfb(products: any[]) {
   return products.flatMap((product) => {
     const mlfbs = mlfbValuesFromProduct(product);
@@ -123,6 +204,21 @@ function expandProductsToSingleMlfb(products: any[]) {
       extraction_source: product?.extraction_source || 'mlfb_split',
     }));
   });
+}
+
+function filterRelatedMlfbs(data: any, masterRecords: Map<string, MasterRecord>) {
+  if (!Array.isArray(data?.products) || masterRecords.size === 0) return data;
+  return {
+    ...data,
+    products: data.products.map((product: any) => ({
+      ...product,
+      mlfb: '',
+      covered_mlfbs: [],
+      related_mlfbs: Array.isArray(product?.related_mlfbs)
+        ? product.related_mlfbs.map(normalizeMlfb).filter((mlfb: string) => masterRecords.has(mlfb))
+        : [],
+    })),
+  };
 }
 
 function evidenceFacts(text: string, mlfb: string) {
@@ -207,17 +303,29 @@ function deterministicPresentationFallback(rawIndex: any) {
   return { products };
 }
 
-function ensureMlfbCoverage(data: any, rawIndex: any) {
+function ensureMlfbCoverage(data: any, rawIndex: any, masterRecords?: Map<string, MasterRecord>) {
   const products = Array.isArray(data?.products) ? expandProductsToSingleMlfb(data.products) : [];
   const candidates = Array.isArray(rawIndex?.extracted?.mlfbCandidates)
     ? rawIndex.extracted.mlfbCandidates.map(normalizeMlfb).filter(Boolean)
     : [];
-  const existing = new Set(products.flatMap(mlfbValuesFromProduct));
+  const allowedMlfbs = masterRecords?.size ? new Set(masterRecords.keys()) : null;
+  const masterScopedProducts = allowedMlfbs
+    ? products
+        .map(product => {
+          const matchedMlfb = mlfbValuesFromProduct(product).find(mlfb => allowedMlfbs.has(mlfb));
+          const record = matchedMlfb ? masterRecords?.get(matchedMlfb) : null;
+          return record ? normalizeProductToMaster(product, record) : null;
+        })
+        .filter(Boolean)
+    : products;
+  const existing = new Set(masterScopedProducts.flatMap(mlfbValuesFromProduct));
   const slides = Array.isArray(rawIndex?.slides) ? rawIndex.slides : [];
   const chunks = Array.isArray(rawIndex?.chunks) ? rawIndex.chunks : [];
 
   for (const mlfb of candidates) {
+    if (allowedMlfbs && !allowedMlfbs.has(mlfb)) continue;
     if (existing.has(mlfb)) continue;
+    const masterRecord = masterRecords?.get(mlfb);
 
     const slide = slides.find((item: any) => String(item?.text || '').includes(mlfb));
     const tableRow = slide?.tables
@@ -255,9 +363,9 @@ function ensureMlfbCoverage(data: any, rawIndex: any) {
     const productName = nameParts.join(' · ') || nearbyName || mlfb;
     const evidenceId = slide?.id || chunk?.id;
 
-    products.push({
-      item_type: mlfb.startsWith('6ES7193') ? 'accessory' : 'module',
-      product_name: productName,
+    masterScopedProducts.push(normalizeProductToMaster({
+      item_type: masterRecord ? masterItemType(masterRecord) : (mlfb.startsWith('6ES7193') ? 'accessory' : 'module'),
+      product_name: masterRecord?.description || productName,
       mlfb,
       summary: productName === mlfb ? '资料中明确列出的订货型号。' : `资料中的订货信息：${productName}`,
       key_features: facts.slice(0, 3),
@@ -266,11 +374,11 @@ function ensureMlfbCoverage(data: any, rawIndex: any) {
       release_info: releaseInfo,
       evidence_chunk_ids: evidenceId ? [evidenceId] : [],
       extraction_source: 'deterministic_mlfb_backfill',
-    });
+    }, masterRecord || { mlfb, description: productName }, evidenceId ? [evidenceId] : []));
     existing.add(mlfb);
   }
 
-  return { ...data, products };
+  return { ...data, products: masterScopedProducts };
 }
 
 export async function POST(req: Request) {
@@ -328,25 +436,62 @@ export async function POST(req: Request) {
 
       try {
         console.log(`Sending local JSON index ${file} to LLM for precision extraction...`);
+        const profile = getMaterialProfile(folderName);
+        const shouldUseMasterContext = !folderName.startsWith('01_')
+          && (profile.enforceMlfbCoverage || folderName.startsWith('03_'));
+        const masterRecords = shouldUseMasterContext
+          ? loadMasterRecordMap()
+          : new Map<string, MasterRecord>();
+        if (profile.enforceMlfbCoverage && !folderName.startsWith('01_') && masterRecords.size === 0) {
+          results.push({
+            file: sourceFileName,
+            rawJson: file,
+            status: 'error',
+            error: '01 产品物料表格尚未生成本地 JSON，无法按主数据白名单精提取。',
+          });
+          continue;
+        }
+
+        const masterContext = masterRecords.size
+          ? folderName.startsWith('03_')
+            ? `\nAuthoritative 01 product master whitelist. For folder 03, do not create cards per MLFB. Use this whitelist only to validate related_mlfbs; discard non-whitelisted terminals, color labels, connectors, accessories, or product codes:\n${masterPromptContext(masterRecords)}\n`
+            : `\nAuthoritative 01 product master whitelist. Only create refined product cards for these MLFB values. Use their product names and subtypes as the source of truth:\n${masterPromptContext(masterRecords)}\n`
+          : '';
+
         // Force output to JSON
-        const systemPrompt = `You are a professional product management data extractor.
+        let systemPrompt = `You are a professional product management data extractor.
 You will receive a local raw JSON index generated from a source document. The raw JSON contains source metadata, heuristic candidates, headings, and text chunks.
 Extract information strictly following the user's prompt.
 Use only evidence present in the raw JSON. Do not use external knowledge, assumptions, or prior memory.
 If a field is not supported by the raw JSON evidence, write "文档未明确说明".
 For a multi-page presentation, create multiple reusable topic cards when the source contains distinct themes. Do not collapse the entire deck into one giant product card.
 When extracted.mlfbCandidates contains MLFB values, create one reusable product card per MLFB. Do not merge multiple MLFB values into one card unless the user explicitly asks for a family-level summary.
+If an authoritative 01 product master whitelist is provided, discard any MLFB, accessory, terminal, color label, spare part, or product code that is not in that whitelist. Do not create refined cards for non-whitelisted material.
 You MUST output valid JSON only. Do not wrap in markdown or any other text.
+${masterContext}
 User Rule: ${prompt}`;
+        if (folderName.startsWith('03_')) {
+          systemPrompt = `You are a professional technical manual chapter extractor.
+You will receive a local raw JSON index generated from a technical manual. Prefer the chapters array as the evidence boundary. Each chapter has id, title, chapterType, text, and optional mlfbCandidates.
+Extract reusable chapter/theme cards strictly following the user's prompt.
+Use only evidence present in the raw JSON. Do not use external knowledge, assumptions, or prior memory.
+Do not create one card per MLFB for folder 03. MLFB values are only optional related_mlfbs tags when directly evidenced and whitelisted.
+Keep system-level installation, wiring, configuration, commissioning, diagnostics, maintenance, safety, limitation, and technical-spec content as chapter/theme cards even when no MLFB is present.
+If a field is not supported by the raw JSON evidence, write "文档未明确说明".
+You MUST output valid JSON only. Do not wrap in markdown or any other text.
+${masterContext}
+User Rule: ${prompt}`;
+        }
 
         const llmPayload = buildLlmPayloadFromRawIndex(rawIndex);
         const normalizedData = normalizeStructuredData(
           await llmService.extractInsightsInChunks(systemPrompt, llmPayload)
         );
-        const profile = getMaterialProfile(folderName);
         const structuredData = profile.enforceMlfbCoverage
-          ? ensureMlfbCoverage(normalizedData, rawIndex)
-          : normalizedData;
+          ? ensureMlfbCoverage(normalizedData, rawIndex, masterRecords.size ? masterRecords : undefined)
+          : folderName.startsWith('03_')
+            ? filterRelatedMlfbs(normalizedData, masterRecords)
+            : normalizedData;
 
         let publishData = structuredData;
         let validation = validateRefinedOutput(publishData, rawIndex);
